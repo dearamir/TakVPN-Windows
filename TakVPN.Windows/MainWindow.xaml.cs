@@ -28,6 +28,8 @@ public partial class MainWindow : Window
         InitializeComponent();
         FitWindowToWorkArea();
         LoadWindowIcon();
+        AppVersionText.Text = "نسخه 0.1.33";
+        UpdateVpnStatusIcon(false);
         ProfilesList.ItemsSource = _profiles;
         LoadProfiles();
         UpdateButtons();
@@ -398,11 +400,23 @@ public partial class MainWindow : Window
 
     private void UpdateVpnStatusIcon(bool connected)
     {
-        VpnStatusIcon.Fill = connected
-            ? System.Windows.Media.Brushes.LimeGreen
-            : System.Windows.Media.Brushes.White;
-        VpnStatusIcon.Stroke = VpnStatusIcon.Fill;
-        VpnStatusIcon.ToolTip = connected ? "VPN متصل است" : "VPN قطع است";
+        var accent = connected
+            ? System.Windows.Media.Color.FromRgb(35, 210, 125)
+            : System.Windows.Media.Color.FromRgb(92, 160, 255);
+        ConnectionStatusGlow.Background = new System.Windows.Media.SolidColorBrush(
+            System.Windows.Media.Color.FromArgb(42, accent.R, accent.G, accent.B));
+        ConnectionStatusGlow.BorderBrush = new System.Windows.Media.SolidColorBrush(
+            System.Windows.Media.Color.FromArgb(210, accent.R, accent.G, accent.B));
+        StatusText.Text = connected ? "متصل" : "قطع";
+        StatusText.Foreground = new System.Windows.Media.SolidColorBrush(accent);
+        StatusHint.Text = connected
+            ? $"اتصال امن برقرار است • {_activeProfile?.Name ?? "TakVPN"}"
+            : "تونل VPN غیرفعال است";
+        ConnectionStatusGlow.Effect = new System.Windows.Media.Effects.DropShadowEffect
+        {
+            Color = accent, BlurRadius = connected ? 24 : 12,
+            ShadowDepth = 0, Opacity = connected ? 0.9 : 0.35
+        };
     }
 
     private void SetBusy(bool busy, string? hint = null)
