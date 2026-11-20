@@ -13,6 +13,7 @@ public partial class MainWindow : Window
     private readonly string _storePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TakVPN", "profiles.json");
     private readonly XrayEngine _engine = new();
     private bool _busy;
+    private bool _isClosing;
 
     public MainWindow()
     {
@@ -72,7 +73,7 @@ public partial class MainWindow : Window
 
     private async void TestLatency_Click(object sender, RoutedEventArgs e)
     {
-        if (ProfilesList.SelectedItem is not VpnProfile profile || _busy) return;
+        if (_isClosing || ProfilesList.SelectedItem is not VpnProfile profile || _busy) return;
         SetBusy(true, "در حال راه‌اندازی هسته و سنجش تأخیر واقعی…");
         try
         {
@@ -90,12 +91,20 @@ public partial class MainWindow : Window
             Debug.WriteLine(ex);
             MessageBox.Show(ex.Message, "TakVPN - تست کانفیگ", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
-        finally { RefreshSelected(); SaveProfiles(); SetBusy(false); }
+        finally
+        {
+            if (!_isClosing)
+            {
+                try { RefreshSelected(); } catch (Exception ex) { Debug.WriteLine(ex); }
+                SaveProfiles();
+                try { SetBusy(false); } catch (Exception ex) { Debug.WriteLine(ex); }
+            }
+        }
     }
 
     private async void TestAll_Click(object sender, RoutedEventArgs e)
     {
-        if (_busy || _engine.IsRunning || _profiles.Count == 0) return;
+        if (_isClosing || _busy || _engine.IsRunning || _profiles.Count == 0) return;
         SetBusy(true, "آغاز تست گروهی؛ هر کانفیگ جداگانه از مسیر Xray بررسی می‌شود…");
         var passed = 0;
         try
@@ -121,12 +130,29 @@ public partial class MainWindow : Window
             StatusHint.Text = "مقادیر، زمان درخواست HTTPS از مسیر Xray هستند؛ نه پینگ ICMP.";
             SaveProfiles();
         }
-        finally { SetBusy(false); UpdateButtons(); }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Group test failed: {ex}");
+            if (!_isClosing)
+            {
+                StatusText.Text = "تست گروهی متوقف شد";
+                StatusHint.Text = ex.Message;
+                MessageBox.Show(ex.Message, "TakVPN - تست گروهی", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+        finally
+        {
+            if (!_isClosing)
+            {
+                try { SetBusy(false); UpdateButtons(); }
+                catch (Exception ex) { Debug.WriteLine(ex); }
+            }
+        }
     }
 
     private async void Connect_Click(object sender, RoutedEventArgs e)
     {
-        if (ProfilesList.SelectedItem is not VpnProfile profile || _busy) return;
+        if (_isClosing || ProfilesList.SelectedItem is not VpnProfile profile || _busy) return;
         SetBusy(true, "در حال ایجاد تونل امن…");
         try
         {
@@ -145,7 +171,7 @@ public partial class MainWindow : Window
 
     private async void Disconnect_Click(object sender, RoutedEventArgs e)
     {
-        if (_busy) return;
+        if (_isClosing || _busy) return;
         SetBusy(true, "در حال قطع اتصال و بازگرداندن مسیرها…");
         try
         {
@@ -159,6 +185,7 @@ public partial class MainWindow : Window
 
     private void SetBusy(bool busy, string? hint = null)
     {
+        if (_isClosing) return;
         _busy = busy;
         if (hint is not null) StatusHint.Text = hint;
         ConnectButton.IsEnabled = !busy && !_engine.IsRunning && ProfilesList.SelectedItem is VpnProfile;
@@ -216,9 +243,10 @@ public partial class MainWindow : Window
 
     protected override async void OnClosed(EventArgs e)
     {
-        try { await _engine.StopAsync(); } catch (Exception ex) { Debug.WriteLine(ex); }
-        _engine.Dispose();
+        _isClosing = true;
         base.OnClosed(e);
+        try { await _engine.StopAsync(); }
+        catch (Exception ex) { Debug.WriteLine($"VPN shutdown cleanup failed: {ex}"); }
     }
 }
 
