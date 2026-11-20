@@ -346,6 +346,11 @@ public sealed class XrayEngine : IDisposable
         await RunPnpUtilAsync(arguments, TimeSpan.FromSeconds(12));
 
     private static async Task<(int ExitCode, string Output)> RunPnpUtilAsync(
+        string argument,
+        TimeSpan timeout) =>
+        await RunPnpUtilAsync(new[] { argument }, timeout);
+
+    private static async Task<(int ExitCode, string Output)> RunPnpUtilAsync(
         string firstArgument,
         string secondArgument,
         TimeSpan? timeout = null)
