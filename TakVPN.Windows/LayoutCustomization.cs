@@ -51,6 +51,15 @@ public sealed class LayoutCustomization
         _editButton.Click += (_, _) => SetEditing(!_editing);
         _resetButton.Click += (_, _) => Reset();
         _window.Loaded += (_, _) => Load();
+        _window.PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Escape && _editing)
+            {
+                Reset();
+                SetEditing(false);
+                e.Handled = true;
+            }
+        };
         _toolbar.PreviewMouseLeftButtonDown += ToolbarMouseDown;
         _toolbar.PreviewMouseMove += ToolbarMouseMove;
         _toolbar.PreviewMouseLeftButtonUp += (_, _) => { _dragButton = null; _dragStarted = false; };
@@ -138,8 +147,8 @@ public sealed class LayoutCustomization
                 {
                     X = translate?.X ?? 0,
                     Y = translate?.Y ?? 0,
-                    Width = double.IsNaN(panel.Width) ? panel.ActualWidth : panel.Width,
-                    Height = double.IsNaN(panel.Height) ? panel.ActualHeight : panel.Height
+                    Width = double.IsNaN(panel.Width) ? 0 : panel.Width,
+                    Height = double.IsNaN(panel.Height) ? 0 : panel.Height
                 };
             }
             state.ToolbarOrder = _toolbar.Children.OfType<Button>().Select(GetButtonKey).ToList();
@@ -273,8 +282,18 @@ public sealed class LayoutCustomization
                 transform = new TranslateTransform();
                 element.RenderTransform = transform;
             }
-            transform.X += e.HorizontalChange;
-            transform.Y += e.VerticalChange;
+            var parent = VisualTreeHelper.GetParent(element) as FrameworkElement;
+            var dx = e.HorizontalChange;
+            var dy = e.VerticalChange;
+            if (parent is not null && parent.ActualWidth > 0 && parent.ActualHeight > 0)
+            {
+                var bounds = element.TransformToAncestor(parent).TransformBounds(new Rect(element.RenderSize));
+                const double visible = 90;
+                dx = Math.Clamp(dx, visible - bounds.Right, parent.ActualWidth - visible - bounds.Left);
+                dy = Math.Clamp(dy, visible - bounds.Bottom, parent.ActualHeight - visible - bounds.Top);
+            }
+            transform.X += dx;
+            transform.Y += dy;
             _save();
         }
 
