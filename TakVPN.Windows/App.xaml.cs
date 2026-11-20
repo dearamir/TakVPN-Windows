@@ -23,11 +23,10 @@ public partial class App : Application
         SessionEnding += (_, _) => _allowExit = true;
         base.OnStartup(e);
 
-        if (MainWindow is not null)
-        {
-            MainWindow.Closing += MainWindow_Closing;
-            MainWindow.StateChanged += MainWindow_StateChanged;
-        }
+        var mainWindow = new MainWindow();
+        MainWindow = mainWindow;
+        mainWindow.Closing += MainWindow_Closing;
+        mainWindow.StateChanged += MainWindow_StateChanged;
 
         try
         {
@@ -48,6 +47,7 @@ public partial class App : Application
             menu.Items.Add(exitItem);
             _trayIcon.ContextMenuStrip = menu;
             _trayIcon.DoubleClick += (_, _) => ShowMainWindow();
+            mainWindow.Show();
         }
         catch (Exception ex)
         {
