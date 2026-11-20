@@ -23,61 +23,82 @@ public partial class App : Application
         SessionEnding += (_, _) => _allowExit = true;
         base.OnStartup(e);
 
-        var mainWindow = new MainWindow();
-        MainWindow = mainWindow;
-        mainWindow.Closing += MainWindow_Closing;
-        mainWindow.StateChanged += MainWindow_StateChanged;
-
+        MainWindow mainWindow;
         try
         {
-            var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "TakVPN.ico");
-            _trayIcon = new Forms.NotifyIcon
-            {
-                Icon = new System.Drawing.Icon(iconPath),
-                Text = "TakVPN",
-                Visible = true
-            };
-            var menu = new Forms.ContextMenuStrip();
-            var openItem = new Forms.ToolStripMenuItem("Open TakVPN");
-            openItem.Click += (_, _) => ShowMainWindow();
-            var exitItem = new Forms.ToolStripMenuItem("Exit");
-            exitItem.Click += (_, _) => ExitFromTray();
-            menu.Items.Add(openItem);
-            menu.Items.Add(new Forms.ToolStripSeparator());
-            menu.Items.Add(exitItem);
-            _trayIcon.ContextMenuStrip = menu;
-            _trayIcon.DoubleClick += (_, _) => ShowMainWindow();
-            mainWindow.Show();
+            mainWindow = new MainWindow();
+            MainWindow = mainWindow;
+            mainWindow.Closing += MainWindow_Closing;
+            mainWindow.StateChanged += MainWindow_StateChanged;
         }
         catch (Exception ex)
         {
             WriteCrashLog(ex);
-            MessageBox.Show("آیکون کنار ساعت بارگذاری نشد.\n" + ex.Message, "TakVPN",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show("راه‌اندازی پنجره اصلی ناموفق بود. گزارش خطا ذخیره شد.\n" + ex.Message,
+                "TakVPN - خطای راه‌اندازی", MessageBoxButton.OK, MessageBoxImage.Error);
+            Shutdown(-1);
+            return;
         }
+
+        try
+        {
+            var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "TakVPN.ico");
+            if (File.Exists(iconPath))
+            {
+                using var icon = new System.Drawing.Icon(iconPath);
+                _trayIcon = new Forms.NotifyIcon
+                {
+                    Icon = (System.Drawing.Icon)icon.Clone(),
+                    Text = "TakVPN",
+                    Visible = true
+                };
+                var menu = new Forms.ContextMenuStrip();
+                var openItem = new Forms.ToolStripMenuItem("Open TakVPN");
+                openItem.Click += (_, _) => ShowMainWindow();
+                var exitItem = new Forms.ToolStripMenuItem("Exit");
+                exitItem.Click += (_, _) => ExitFromTray();
+                menu.Items.Add(openItem);
+                menu.Items.Add(new Forms.ToolStripSeparator());
+                menu.Items.Add(exitItem);
+                _trayIcon.ContextMenuStrip = menu;
+                _trayIcon.DoubleClick += (_, _) => ShowMainWindow();
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteCrashLog(ex);
+            _trayIcon?.Dispose();
+            _trayIcon = null;
+            MessageBox.Show("آیکون کنار ساعت بارگذاری نشد؛ برنامه بدون آیکون سینی اجرا می‌شود.\n" + ex.Message,
+                "TakVPN", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        mainWindow.Show();
     }
 
     private void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
         if (_allowExit || _trayIcon is null) return;
+        if (sender is not Window window) return;
         e.Cancel = true;
-        MainWindow.Hide();
-        _trayIcon?.ShowBalloonTip(1800, "TakVPN", "برنامه در کنار ساعت ویندوز در حال اجراست.", Forms.ToolTipIcon.Info);
+        window.Hide();
+        try { _trayIcon.ShowBalloonTip(1800, "TakVPN", "برنامه در کنار ساعت ویندوز در حال اجراست.", Forms.ToolTipIcon.Info); }
+        catch (Exception ex) { WriteCrashLog(ex); }
     }
 
     private void MainWindow_StateChanged(object? sender, EventArgs e)
     {
-        if (MainWindow.WindowState == WindowState.Minimized)
-            MainWindow.Hide();
+        if (sender is Window window && window.WindowState == WindowState.Minimized)
+            window.Hide();
     }
 
     private void ShowMainWindow()
     {
-        if (MainWindow is null) return;
-        MainWindow.Show();
-        if (MainWindow.WindowState == WindowState.Minimized)
-            MainWindow.WindowState = WindowState.Normal;
-        MainWindow.Activate();
+        var window = MainWindow;
+        if (window is null) return;
+        window.Show();
+        if (window.WindowState == WindowState.Minimized)
+            window.WindowState = WindowState.Normal;
+        window.Activate();
     }
 
     private void ExitFromTray()
