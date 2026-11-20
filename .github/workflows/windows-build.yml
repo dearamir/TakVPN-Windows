@@ -55,6 +55,24 @@ jobs:
           Copy-Item $xray.FullName "TakVPN.Windows/tools/xray/xray.exe" -Force
           Copy-Item $wintun.FullName "TakVPN.Windows/tools/xray/wintun.dll" -Force
           Get-ChildItem $extract -File | Where-Object { $_.Name -match "^(geoip|geosite).*\.dat$|^LICENSE" } | ForEach-Object { Copy-Item $_.FullName "TakVPN.Windows/tools/xray/$($_.Name)" -Force }
+      - name: Download official sing-box core for Hysteria2
+        shell: pwsh
+        run: |
+          $release = Invoke-RestMethod -Uri "https://api.github.com/repos/SagerNet/sing-box/releases/latest" -Headers @{ "User-Agent" = "TakVPN-Windows-CI" }
+          $asset = $release.assets | Where-Object { $_.name -eq "sing-box-$($release.tag_name.TrimStart('v'))-windows-amd64.zip" } | Select-Object -First 1
+          if (-not $asset) { $asset = $release.assets | Where-Object { $_.name -match "windows-amd64.zip$" -and $_.name -notmatch "legacy" } | Select-Object -First 1 }
+          if (-not $asset) { throw "Official sing-box Windows amd64 archive not found" }
+          $zip = Join-Path $env:RUNNER_TEMP "sing-box-windows-amd64.zip"
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zip
+          $extract = Join-Path $env:RUNNER_TEMP "sing-box-extract"
+          Expand-Archive -Path $zip -DestinationPath $extract -Force
+          $binary = Get-ChildItem $extract -Filter "sing-box.exe" -Recurse | Select-Object -First 1
+          if (-not $binary) { throw "sing-box.exe missing from official release archive" }
+          New-Item -ItemType Directory -Force -Path "TakVPN.Windows/tools/sing-box" | Out-Null
+          Copy-Item $binary.FullName "TakVPN.Windows/tools/sing-box/sing-box.exe" -Force
+          Copy-Item "TakVPN.Windows/tools/xray/wintun.dll" "TakVPN.Windows/tools/sing-box/wintun.dll" -Force
+          & "TakVPN.Windows/tools/sing-box/sing-box.exe" version
+          if ($LASTEXITCODE -ne 0) { throw "sing-box binary smoke test failed" }
       - name: Publish self-contained Windows x64 app
         run: dotnet publish TakVPN.Windows/TakVPN.Windows.csproj -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true
       - name: Smoke test bundled Xray
