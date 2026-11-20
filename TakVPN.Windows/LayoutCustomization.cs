@@ -25,6 +25,7 @@ public sealed class LayoutCustomization
     private Button? _dragButton;
     private Point _dragStart;
     private bool _dragStarted;
+    private readonly List<string> _defaultToolbarOrder;
 
     private sealed class LayoutState
     {
@@ -46,6 +47,7 @@ public sealed class LayoutCustomization
         _toolbar = toolbar;
         _editButton = editButton;
         _resetButton = resetButton;
+        _defaultToolbarOrder = _toolbar.Children.OfType<Button>().Select(GetButtonKey).ToList();
         _editButton.Click += (_, _) => SetEditing(!_editing);
         _resetButton.Click += (_, _) => Reset();
         _window.Loaded += (_, _) => Load();
@@ -119,7 +121,7 @@ public sealed class LayoutCustomization
             panel.Width = double.NaN;
             panel.Height = double.NaN;
         }
-        foreach (var button in _toolbar.Children.OfType<Button>()) button.ClearValue(Panel.ZIndexProperty);
+        ApplyToolbarOrder(_defaultToolbarOrder);
         Save();
         MessageBox.Show("چیدمان به حالت پیش‌فرض برگشت. برای ادامه ویرایش، دوباره پنل‌ها را جابه‌جا کن.", "TakVPN", MessageBoxButton.OK, MessageBoxImage.Information);
     }
