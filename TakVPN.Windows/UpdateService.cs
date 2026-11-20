@@ -105,6 +105,8 @@ internal static class UpdateService
         start.ArgumentList.Add("/NORESTART");
         start.ArgumentList.Add("/CLOSEAPPLICATIONS");
         start.ArgumentList.Add("/RESTARTAPPLICATIONS");
-        Process.Start(start) ?? throw new InvalidOperationException("اجرای نصب‌کننده ناموفق بود.");
+        var installer = Process.Start(start);
+        if (installer is null) throw new InvalidOperationException("اجرای نصب‌کننده ناموفق بود.");
+        installer.Dispose();
     }
 }
