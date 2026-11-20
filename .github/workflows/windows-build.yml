@@ -73,8 +73,17 @@ jobs:
           Copy-Item "TakVPN.Windows/tools/xray/wintun.dll" "TakVPN.Windows/tools/sing-box/wintun.dll" -Force
           & "TakVPN.Windows/tools/sing-box/sing-box.exe" version
           if ($LASTEXITCODE -ne 0) { throw "sing-box binary smoke test failed" }
+      - name: Determine next Windows release version
+        if: github.event_name != 'pull_request'
+        shell: pwsh
+        run: |
+          $tags = git tag -l "windows-v0.1.*"
+          $patches = @($tags | ForEach-Object { if ($_ -match "^windows-v0\.1\.(\d+)$") { [int]$Matches[1] } })
+          $nextPatch = if ($patches.Count -gt 0) { ($patches | Measure-Object -Maximum).Maximum + 1 } else { 1 }
+          "TAKVPN_RELEASE_TAG=windows-v0.1.$nextPatch" >> $env:GITHUB_ENV
+          "TAKVPN_VERSION=0.1.$nextPatch" >> $env:GITHUB_ENV
       - name: Publish self-contained Windows x64 app
-        run: dotnet publish TakVPN.Windows/TakVPN.Windows.csproj -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true
+        run: dotnet publish TakVPN.Windows/TakVPN.Windows.csproj -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true -p:Version=${{ env.TAKVPN_VERSION }}
       - name: Smoke test bundled Xray
         shell: pwsh
         run: |
@@ -98,7 +107,7 @@ jobs:
           $iscc = $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
           if (-not $iscc) { $command = Get-Command "ISCC.exe" -ErrorAction SilentlyContinue; if ($command) { $iscc = $command.Source } }
           if (-not $iscc) { throw "Inno Setup compiler not found" }
-          & $iscc "installer/TakVPN.iss"
+          & $iscc "/DMyAppVersion=$env:TAKVPN_VERSION" "installer/TakVPN.iss"
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed" }
           Copy-Item "installer/TakVPN-Setup-x64.exe" "TakVPN-Setup-x64.exe" -Force
       - name: Create portable ZIP
@@ -119,8 +128,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          $tags = git tag -l "windows-v0.1.*"
-          $patches = @($tags | ForEach-Object { if ($_ -match "^windows-v0\.1\.(\d+)$") { [int]$Matches[1] } })
-          $nextPatch = if ($patches.Count -gt 0) { ($patches | Measure-Object -Maximum).Maximum + 1 } else { 1 }
-          $tag = "windows-v0.1.$nextPatch"
+          $tag = $env:TAKVPN_RELEASE_TAG
           gh release create $tag "TakVPN-Setup-x64.exe" "TakVPN-Windows-x64-portable.zip" --title "TakVPN Windows $tag" --notes "Independent Windows x64 build of TakVPN." --latest
