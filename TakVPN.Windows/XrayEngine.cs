@@ -276,7 +276,7 @@ public sealed class XrayEngine : IDisposable
         var outbound = ParseOutbound(profile.Link);
         var config = new JsonObject
         {
-            ["log"] = new JsonObject { ["loglevel"] = "warning" },
+            ["log"] = new JsonObject { ["loglevel"] = "info" },
             ["dns"] = new JsonObject { ["servers"] = new JsonArray("1.1.1.1", "8.8.8.8") },
             ["outbounds"] = new JsonArray(outbound,
                 new JsonObject { ["tag"] = "direct", ["protocol"] = "freedom" },
