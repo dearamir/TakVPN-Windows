@@ -26,12 +26,26 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        FitWindowToWorkArea();
         LoadWindowIcon();
         ProfilesList.ItemsSource = _profiles;
         LoadProfiles();
         UpdateButtons();
         _trafficTimer.Tick += (_, _) => { UpdateTrafficStats(); RefreshEngineLogs(); };
         _trafficTimer.Start();
+    }
+
+    private void FitWindowToWorkArea()
+    {
+        // Keep the native title bar and its minimize/maximize/close buttons
+        // inside the usable desktop area, including low-resolution displays.
+        var workArea = SystemParameters.WorkArea;
+        MinWidth = Math.Min(760, Math.Max(400, workArea.Width - 40));
+        MinHeight = Math.Min(560, Math.Max(360, workArea.Height - 40));
+        Width = Math.Min(1100, Math.Max(MinWidth, workArea.Width - 48));
+        Height = Math.Min(720, Math.Max(MinHeight, workArea.Height - 48));
+        Left = workArea.Left + (workArea.Width - Width) / 2;
+        Top = workArea.Top + (workArea.Height - Height) / 2;
     }
 
     private void LoadWindowIcon()
