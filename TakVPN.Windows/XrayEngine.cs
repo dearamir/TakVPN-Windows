@@ -54,27 +54,45 @@ public sealed class XrayEngine : IDisposable
             }
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
+            catch (Exception ex) { Debug.WriteLine($"Xray log write failed: {ex}"); }
         }
 
         _process = new Process { StartInfo = start, EnableRaisingEvents = true };
         _process.OutputDataReceived += (_, e) => Capture(e.Data);
         _process.ErrorDataReceived += (_, e) => Capture(e.Data);
-        if (!_process.Start()) throw new InvalidOperationException("Xray process could not start.");
-        _process.BeginOutputReadLine();
-        _process.BeginErrorReadLine();
-        await Task.Delay(1800);
-        if (_process.HasExited)
+        try
         {
-            var code = _process.ExitCode;
-            var details = string.Join(Environment.NewLine, startupLines);
-            if (string.IsNullOrWhiteSpace(details))
-                details = "Xray closed without writing diagnostic output. Check the bundled Xray/Wintun files and run TakVPN as Administrator.";
-            _process.Dispose();
+            if (!_process.Start()) throw new InvalidOperationException("Xray process could not start.");
+            _process.BeginOutputReadLine();
+            _process.BeginErrorReadLine();
+            await Task.Delay(1800);
+            if (_process.HasExited)
+            {
+                var code = _process.ExitCode;
+                var details = string.Join(Environment.NewLine, startupLines);
+                if (string.IsNullOrWhiteSpace(details))
+                    details = "Xray closed without writing diagnostic output. Check the bundled Xray/Wintun files and run TakVPN as Administrator.";
+                throw new InvalidOperationException(
+                    $"Xray exited during startup (code {code}).{Environment.NewLine}{Environment.NewLine}" +
+                    $"{details}{Environment.NewLine}{Environment.NewLine}" +
+                    $"Full log: {Path.Combine(_dataDir, "xray-startup.log")}");
+            }
+        }
+        catch
+        {
+            var failedProcess = _process;
             _process = null;
-            throw new InvalidOperationException(
-                $"Xray exited during startup (code {code}).{Environment.NewLine}{Environment.NewLine}" +
-                $"{details}{Environment.NewLine}{Environment.NewLine}" +
-                $"Full log: {Path.Combine(_dataDir, "xray-startup.log")}");
+            try
+            {
+                if (failedProcess is not null && !failedProcess.HasExited)
+                {
+                    failedProcess.Kill(entireProcessTree: true);
+                    await failedProcess.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+                }
+            }
+            catch (Exception cleanupError) { Debug.WriteLine($"Xray startup cleanup failed: {cleanupError}"); }
+            finally { failedProcess?.Dispose(); }
+            throw;
         }
     }
 
