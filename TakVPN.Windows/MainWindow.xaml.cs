@@ -265,6 +265,12 @@ public partial class MainWindow : Window
         }
     }
 
+    private void DetailLatency_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton != System.Windows.Input.MouseButton.Left) return;
+        TestLatency_Click(sender, e);
+    }
+
     private async void TestLatency_Click(object sender, RoutedEventArgs e)
     {
         if (_isClosing || ProfilesList.SelectedItem is not VpnProfile profile || _busy) return;
