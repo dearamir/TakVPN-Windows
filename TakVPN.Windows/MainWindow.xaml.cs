@@ -145,7 +145,7 @@ public partial class MainWindow : Window
             Text = profile.Name,
             Height = 34,
             Padding = new Thickness(8, 5, 8, 5),
-            FlowDirection = FlowDirection.Auto,
+            FlowDirection = FlowDirection.RightToLeft,
             Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(35, 37, 44)),
             Foreground = System.Windows.Media.Brushes.White,
             CaretBrush = System.Windows.Media.Brushes.White,
