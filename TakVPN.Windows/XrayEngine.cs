@@ -18,12 +18,18 @@ public sealed class XrayEngine : IDisposable
     private Process? _process;
     private readonly string _dataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TakVPN");
     private string CorePath => Path.Combine(AppContext.BaseDirectory, "tools", "xray", "xray.exe");
+    private string SingBoxPath => Path.Combine(AppContext.BaseDirectory, "tools", "sing-box", "sing-box.exe");
 
     public bool IsRunning => _process is { HasExited: false };
 
     public async Task StartAsync(VpnProfile profile)
     {
         if (IsRunning) throw new InvalidOperationException("VPN is already running.");
+        if (profile.Protocol.Equals("HYSTERIA2", StringComparison.OrdinalIgnoreCase) || profile.Protocol.Equals("HY2", StringComparison.OrdinalIgnoreCase))
+        {
+            await StartHysteria2Async(profile);
+            return;
+        }
         EnsureCore();
         Directory.CreateDirectory(_dataDir);
         var configPath = Path.Combine(_dataDir, "active-config.json");
@@ -92,6 +98,92 @@ public sealed class XrayEngine : IDisposable
             }
             catch (Exception cleanupError) { Debug.WriteLine($"Xray startup cleanup failed: {cleanupError}"); }
             finally { failedProcess?.Dispose(); }
+            throw;
+        }
+    }
+
+    private async Task StartHysteria2Async(VpnProfile profile)
+    {
+        if (!File.Exists(SingBoxPath))
+            throw new FileNotFoundException("هسته sing-box برای Hysteria2 در بسته ویندوز وجود ندارد.", SingBoxPath);
+        Directory.CreateDirectory(_dataDir);
+        var configPath = Path.Combine(_dataDir, "active-hysteria2.json");
+        var uri = new Uri(profile.Link);
+        var query = HttpUtility.ParseQueryString(uri.Query);
+        var password = Uri.UnescapeDataString(uri.UserInfo);
+        var serverName = query["sni"] ?? query["peer"] ?? profile.Host;
+        var tls = new JsonObject { ["enabled"] = true, ["server_name"] = serverName };
+        if (query["insecure"] is "1" or "true") tls["insecure"] = true;
+        var outbound = new JsonObject
+        {
+            ["type"] = "hysteria2", ["tag"] = "proxy", ["server"] = profile.Host,
+            ["server_port"] = profile.Port, ["password"] = password, ["tls"] = tls
+        };
+        var obfs = query["obfs"];
+        var obfsPassword = query["obfs-password"] ?? query["obfsPassword"];
+        if (!string.IsNullOrWhiteSpace(obfs) && !string.IsNullOrWhiteSpace(obfsPassword))
+            outbound["obfs"] = new JsonObject { ["type"] = obfs, ["password"] = obfsPassword };
+        var config = new JsonObject
+        {
+            ["log"] = new JsonObject { ["level"] = "info", ["timestamp"] = true },
+            ["dns"] = new JsonObject { ["servers"] = new JsonArray(new JsonObject { ["tag"] = "remote", ["address"] = "1.1.1.1" }) },
+            ["inbounds"] = new JsonArray(new JsonObject
+            {
+                ["type"] = "tun", ["tag"] = "tun-in", ["interface_name"] = "TakVPN",
+                ["address"] = new JsonArray("172.19.0.1/30", "fdfe:dcba:9876::1/126"),
+                ["mtu"] = 1500, ["auto_route"] = true, ["strict_route"] = true
+            }),
+            ["outbounds"] = new JsonArray(outbound,
+                new JsonObject { ["type"] = "direct", ["tag"] = "direct" },
+                new JsonObject { ["type"] = "block", ["tag"] = "block" }),
+            ["route"] = new JsonObject { ["auto_detect_interface"] = true, ["final"] = "proxy" }
+        };
+        await File.WriteAllTextAsync(configPath, config.ToJsonString(new JsonSerializerOptions { WriteIndented = true }), new UTF8Encoding(false));
+        var check = new ProcessStartInfo(SingBoxPath)
+        {
+            WorkingDirectory = Path.GetDirectoryName(SingBoxPath)!,
+            UseShellExecute = false, CreateNoWindow = true,
+            RedirectStandardOutput = true, RedirectStandardError = true
+        };
+        check.ArgumentList.Add("check"); check.ArgumentList.Add("-c"); check.ArgumentList.Add(configPath);
+        using (var validator = Process.Start(check) ?? throw new InvalidOperationException("sing-box config validator could not start."))
+        {
+            var stdout = validator.StandardOutput.ReadToEndAsync();
+            var stderr = validator.StandardError.ReadToEndAsync();
+            await validator.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(15));
+            var output = (await stderr) + (await stdout);
+            if (validator.ExitCode != 0) throw new InvalidOperationException("Hysteria2 configuration invalid: " + output);
+        }
+        var start = new ProcessStartInfo(SingBoxPath)
+        {
+            WorkingDirectory = Path.GetDirectoryName(SingBoxPath)!,
+            UseShellExecute = false, CreateNoWindow = true,
+            RedirectStandardOutput = true, RedirectStandardError = true
+        };
+        start.ArgumentList.Add("run"); start.ArgumentList.Add("-c"); start.ArgumentList.Add(configPath);
+        _process = new Process { StartInfo = start, EnableRaisingEvents = true };
+        void Capture(string? line)
+        {
+            if (string.IsNullOrWhiteSpace(line)) return;
+            Debug.WriteLine("[sing-box] " + line);
+            try { File.AppendAllText(Path.Combine(_dataDir, "xray-startup.log"), "[sing-box] " + line + Environment.NewLine, new UTF8Encoding(false)); }
+            catch (Exception ex) { Debug.WriteLine(ex); }
+        }
+        _process.OutputDataReceived += (_, e) => Capture(e.Data);
+        _process.ErrorDataReceived += (_, e) => Capture(e.Data);
+        try
+        {
+            if (!_process.Start()) throw new InvalidOperationException("sing-box could not start.");
+            _process.BeginOutputReadLine(); _process.BeginErrorReadLine();
+            await Task.Delay(1800);
+            if (_process.HasExited) throw new InvalidOperationException("sing-box exited during Hysteria2 startup. Check app.log and xray-startup.log.");
+        }
+        catch
+        {
+            var failed = _process; _process = null;
+            try { if (failed is not null && !failed.HasExited) { failed.Kill(true); await failed.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5)); } }
+            catch (Exception ex) { Debug.WriteLine(ex); }
+            finally { failed?.Dispose(); }
             throw;
         }
     }
