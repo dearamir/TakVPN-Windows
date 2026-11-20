@@ -18,6 +18,14 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
+      - name: Prepare shared TakVPN application icon
+        shell: pwsh
+        run: |
+          $iconBase64 = Get-Content "TakVPN.Windows/Assets/TakVPN.ico.b64" -Raw
+          $iconBytes = [Convert]::FromBase64String($iconBase64)
+          New-Item -ItemType Directory -Force -Path "TakVPN.Windows/Assets" | Out-Null
+          [System.IO.File]::WriteAllBytes("TakVPN.Windows/Assets/TakVPN.ico", $iconBytes)
+          if ((Get-Item "TakVPN.Windows/Assets/TakVPN.ico").Length -lt 1000) { throw "TakVPN icon file is invalid" }
       - name: Download official Xray core and Wintun
         shell: pwsh
         run: |
