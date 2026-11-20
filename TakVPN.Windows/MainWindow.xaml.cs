@@ -17,7 +17,7 @@ public partial class MainWindow : Window
     private bool _busy;
     private bool _isClosing;
     private readonly System.Windows.Threading.DispatcherTimer _trafficTimer = new() { Interval = TimeSpan.FromSeconds(1) };
-    private long _lastSent, _lastReceived;
+    private long _lastSent, _lastReceived, _baseSent, _baseReceived;
     private DateTime _lastTrafficSample;
 
     public MainWindow()
@@ -278,9 +278,9 @@ public partial class MainWindow : Window
 
     private void ResetTrafficStats()
     {
-        _lastSent = _lastReceived = 0;
+        _lastSent = _lastReceived = _baseSent = _baseReceived = 0;
         _lastTrafficSample = DateTime.MinValue;
-        DetailSendTotal.Text = DetailReceiveTotal.Text = "0 B";
+        if (_engine.IsRunning)\n        {\n            try\n            {\n                var nic = NetworkInterface.GetAllNetworkInterfaces().FirstOrDefault(n => n.Name.Contains("TakVPN", StringComparison.OrdinalIgnoreCase) || n.Description.Contains("TakVPN", StringComparison.OrdinalIgnoreCase));\n                if (nic != null) { var s = nic.GetIPv4Statistics(); _baseSent = s.BytesSent; _baseReceived = s.BytesReceived; }\n            }\n            catch (Exception ex) { Debug.WriteLine("Traffic baseline failed: " + ex); }\n        }\n        DetailSendTotal.Text = DetailReceiveTotal.Text = "0 B";
         DetailSendRate.Text = DetailReceiveRate.Text = "0 B/s";
     }
 
@@ -294,7 +294,7 @@ public partial class MainWindow : Window
                     || n.Description.Contains("TakVPN", StringComparison.OrdinalIgnoreCase));
             if (adapter is null) return;
             var stats = adapter.GetIPv4Statistics();
-            long sent = stats.BytesSent, received = stats.BytesReceived;
+            long sent = Math.Max(0, stats.BytesSent - _baseSent), received = Math.Max(0, stats.BytesReceived - _baseReceived);
             var now = DateTime.UtcNow;
             if (_lastTrafficSample != DateTime.MinValue)
             {
