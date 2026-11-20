@@ -11,6 +11,9 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Collections.Concurrent;
 using System.Web;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Security.Principal;
 
 namespace TakVPN.Windows;
 
@@ -201,50 +204,194 @@ public sealed class XrayEngine : IDisposable
                 throw new InvalidOperationException($"{engineName} stopped while Windows was creating the TakVPN tunnel.");
 
             adapters = NetworkInterface.GetAllNetworkInterfaces();
-            var tunnel = adapters.FirstOrDefault(n =>
-                n.OperationalStatus == OperationalStatus.Up &&
-                (string.Equals(n.Name, "TakVPN", StringComparison.OrdinalIgnoreCase) ||
-                 n.Description.Contains("TakVPN Tunnel", StringComparison.OrdinalIgnoreCase) ||
-                 (n.Name.Contains("TakVPN", StringComparison.OrdinalIgnoreCase) &&
-                  n.NetworkInterfaceType == NetworkInterfaceType.Tunnel)));
-
-            if (tunnel is not null)
+            var tunnel = FindTakVpnAdapter(adapters);
+            if (tunnel is not null && tunnel.OperationalStatus == OperationalStatus.Up)
             {
-                var addresses = string.Join(", ", tunnel.GetIPProperties().UnicastAddresses.Select(a => a.Address.ToString()));
-                var line = $"[{engineName}] TUN ready: {tunnel.Name} / {tunnel.Description}; addresses: {addresses}";
-                Debug.WriteLine(line);
-                try { File.AppendAllText(Path.Combine(_dataDir, "xray-startup.log"), line + Environment.NewLine, new UTF8Encoding(false)); } catch { }
+                LogTunReady(engineName, tunnel);
                 return;
             }
             await Task.Delay(300);
         }
 
-        var found = adapters.Length == 0
-            ? "هیچ آداپتور شبکه‌ای پیدا نشد."
-            : string.Join(Environment.NewLine, adapters.Select(n =>
-                $"{n.Name} | {n.Description} | {n.NetworkInterfaceType} | {n.OperationalStatus}"));
-        string routes = "";
+        // A PnP rescan is safe: it asks Windows to rediscover devices and does not
+        // remove or replace any existing VPN/network driver.
+        var scan = await RunPnpUtilAsync("/scan-devices", TimeSpan.FromSeconds(20));
+        WriteDiagnosticLine($"[PnP] scan-devices exit={scan.ExitCode}: {scan.Output}");
+        var rescanDeadline = DateTime.UtcNow.AddSeconds(6);
+        while (DateTime.UtcNow < rescanDeadline)
+        {
+            if (!IsRunning)
+                throw new InvalidOperationException($"{engineName} stopped while Windows was rescanning network devices.");
+            adapters = NetworkInterface.GetAllNetworkInterfaces();
+            var tunnel = FindTakVpnAdapter(adapters);
+            if (tunnel is not null && tunnel.OperationalStatus == OperationalStatus.Up)
+            {
+                LogTunReady(engineName, tunnel);
+                return;
+            }
+            await Task.Delay(300);
+        }
+
+        var report = await CollectWindowsTunDiagnosticsAsync(engineName, adapters, scan);
+        throw new InvalidOperationException(
+            $"هسته {engineName} اجرا شده، اما ویندوز آداپتور TakVPN/Wintun را نساخت یا فعال نکرد. " +
+            "یک بار اسکن امن دستگاه‌های ویندوز هم انجام شد، اما مشکل باقی است." +
+            Environment.NewLine + Environment.NewLine + report);
+    }
+
+    private static NetworkInterface? FindTakVpnAdapter(IEnumerable<NetworkInterface> adapters) =>
+        adapters.FirstOrDefault(n =>
+            string.Equals(n.Name, "TakVPN", StringComparison.OrdinalIgnoreCase) ||
+            n.Name.Contains("TakVPN", StringComparison.OrdinalIgnoreCase) ||
+            n.Description.Contains("TakVPN", StringComparison.OrdinalIgnoreCase));
+
+    private void LogTunReady(string engineName, NetworkInterface tunnel)
+    {
+        var addresses = string.Join(", ", tunnel.GetIPProperties().UnicastAddresses.Select(a => a.Address.ToString()));
+        WriteDiagnosticLine($"[{engineName}] TUN ready: {tunnel.Name} / {tunnel.Description}; status={tunnel.OperationalStatus}; addresses: {addresses}");
+    }
+
+    private async Task<string> CollectWindowsTunDiagnosticsAsync(
+        string engineName,
+        NetworkInterface[] adapters,
+        (int ExitCode, string Output) scan)
+    {
+        var report = new StringBuilder();
+        report.AppendLine("گزارش عیب‌یابی شبکه TakVPN");
+        report.AppendLine($"زمان: {DateTimeOffset.Now:O}");
+        report.AppendLine($"هسته: {engineName}");
+        report.AppendLine($"ویندوز: {Environment.OSVersion}; معماری سیستم: {RuntimeInformation.OSArchitecture}");
+        report.AppendLine($"پوشه برنامه: {AppContext.BaseDirectory}");
         try
         {
-            using var route = Process.Start(new ProcessStartInfo("route.exe", "print")
+            var elevated = new WindowsPrincipal(WindowsIdentity.GetCurrent())
+                .IsInRole(WindowsBuiltInRole.Administrator);
+            report.AppendLine($"دسترسی مدیر: {elevated}");
+        }
+        catch (Exception ex) { report.AppendLine("بررسی دسترسی مدیر ناموفق: " + ex.Message); }
+
+        var xrayPath = CorePath;
+        var wintunPath = Path.Combine(Path.GetDirectoryName(CorePath)!, "wintun.dll");
+        AppendFileDetails(report, "xray.exe", xrayPath);
+        AppendFileDetails(report, "wintun.dll", wintunPath);
+        report.AppendLine($"PnP scan exit code: {scan.ExitCode}");
+        report.AppendLine("PnP scan output:");
+        report.AppendLine(scan.Output);
+
+        report.AppendLine("آداپتورهای شبکه:");
+        foreach (var adapter in adapters)
+        {
+            report.AppendLine($"- {adapter.Name} | {adapter.Description} | {adapter.NetworkInterfaceType} | {adapter.OperationalStatus}");
+        }
+
+        var problems = await RunPnpUtilAsync("/enum-devices", "/problem");
+        report.AppendLine();
+        report.AppendLine($"pnputil /enum-devices /problem (exit {problems.ExitCode}):");
+        report.AppendLine(problems.Output);
+
+        var drivers = await RunPnpUtilAsync("/enum-drivers");
+        report.AppendLine();
+        report.AppendLine($"درایورهای مرتبط در Driver Store (pnputil /enum-drivers, exit {drivers.ExitCode}):");
+        var driverLines = drivers.Output.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+        var relevant = new SortedSet<int>();
+        for (var i = 0; i < driverLines.Length; i++)
+        {
+            if (driverLines[i].Contains("wintun", StringComparison.OrdinalIgnoreCase) ||
+                driverLines[i].Contains("wireguard", StringComparison.OrdinalIgnoreCase))
             {
-                UseShellExecute = false, CreateNoWindow = true,
-                RedirectStandardOutput = true, RedirectStandardError = true
-            });
-            if (route is not null)
-            {
-                var output = await route.StandardOutput.ReadToEndAsync();
-                var error = await route.StandardError.ReadToEndAsync();
-                await route.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(3));
-                routes = Environment.NewLine + "route print:" + Environment.NewLine + output + error;
-                if (routes.Length > 12000) routes = routes[..12000];
+                for (var j = Math.Max(0, i - 2); j <= Math.Min(driverLines.Length - 1, i + 4); j++)
+                    relevant.Add(j);
             }
         }
-        catch (Exception ex) { routes = Environment.NewLine + "route print failed: " + ex.Message; }
+        if (relevant.Count == 0) report.AppendLine("در خروجی Driver Store نامی شامل Wintun یا WireGuard پیدا نشد.");
+        else foreach (var line in relevant) report.AppendLine(driverLines[line]);
 
-        throw new InvalidOperationException(
-            $"هسته {engineName} اجرا شده، اما آداپتور شبکه TakVPN در ویندوز فعال نشد. اتصال به‌عنوان موفق اعلام نشد." +
-            Environment.NewLine + "آداپتورهای شناسایی‌شده:" + Environment.NewLine + found + routes);
+        var path = Path.Combine(_dataDir, "network-diagnostics.txt");
+        var content = report.ToString();
+        try
+        {
+            Directory.CreateDirectory(_dataDir);
+            await File.WriteAllTextAsync(path, content, new UTF8Encoding(false));
+        }
+        catch (Exception ex) { content += Environment.NewLine + "ذخیره گزارش ناموفق: " + ex.Message; }
+
+        WriteDiagnosticLine($"گزارش عیب‌یابی شبکه ذخیره شد: {path}");
+        return content.Length > 14000
+            ? content[..14000] + Environment.NewLine + $"ادامه گزارش در فایل: {path}"
+            : content + Environment.NewLine + $"فایل گزارش: {path}";
+    }
+
+    private static void AppendFileDetails(StringBuilder report, string label, string path)
+    {
+        report.AppendLine($"{label}: {path}");
+        if (!File.Exists(path))
+        {
+            report.AppendLine("  فایل پیدا نشد.");
+            return;
+        }
+        var info = new FileInfo(path);
+        var version = FileVersionInfo.GetVersionInfo(path);
+        report.AppendLine($"  اندازه: {info.Length} bytes; نسخه: {version.FileVersion ?? version.ProductVersion ?? "نامشخص"}");
+        try
+        {
+            using var stream = File.OpenRead(path);
+            var hash = SHA256.HashData(stream);
+            report.AppendLine($"  SHA256: {Convert.ToHexString(hash)}");
+        }
+        catch (Exception ex) { report.AppendLine("  محاسبه SHA256 ناموفق: " + ex.Message); }
+    }
+
+    private static async Task<(int ExitCode, string Output)> RunPnpUtilAsync(
+        params string[] arguments) =>
+        await RunPnpUtilAsync(arguments, TimeSpan.FromSeconds(12));
+
+    private static async Task<(int ExitCode, string Output)> RunPnpUtilAsync(
+        string firstArgument,
+        string secondArgument,
+        TimeSpan? timeout = null)
+    {
+        return await RunPnpUtilAsync(new[] { firstArgument, secondArgument }, timeout ?? TimeSpan.FromSeconds(12));
+    }
+
+    private static async Task<(int ExitCode, string Output)> RunPnpUtilAsync(
+        string[] arguments,
+        TimeSpan timeout)
+    {
+        try
+        {
+            var start = new ProcessStartInfo("pnputil.exe")
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+            foreach (var argument in arguments) start.ArgumentList.Add(argument);
+            using var process = Process.Start(start);
+            if (process is null) return (-1, "pnputil.exe اجرا نشد.");
+            var stdout = process.StandardOutput.ReadToEndAsync();
+            var stderr = process.StandardError.ReadToEndAsync();
+            try { await process.WaitForExitAsync().WaitAsync(timeout); }
+            catch (TimeoutException)
+            {
+                try { process.Kill(entireProcessTree: true); } catch { }
+                return (-2, "اجرای pnputil از زمان مجاز بیشتر طول کشید.");
+            }
+            return (process.ExitCode, (await stdout) + (await stderr));
+        }
+        catch (Exception ex) { return (-1, ex.Message); }
+    }
+
+    private void WriteDiagnosticLine(string line)
+    {
+        Debug.WriteLine(line);
+        try
+        {
+            Directory.CreateDirectory(_dataDir);
+            File.AppendAllText(Path.Combine(_dataDir, "xray-startup.log"),
+                $"[{DateTimeOffset.Now:O}] {line}{Environment.NewLine}", new UTF8Encoding(false));
+        }
+        catch (Exception ex) { Debug.WriteLine("Diagnostic log write failed: " + ex.Message); }
     }
 
     public async Task StopAsync()
