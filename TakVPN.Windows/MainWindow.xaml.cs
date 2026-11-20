@@ -38,6 +38,70 @@ public partial class MainWindow : Window
         _trafficTimer.Start();
     }
 
+
+    private async void CheckXray_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy || _updateBusy) return;
+        CheckXrayButton.IsEnabled = false;
+        CheckXrayButton.Content = "در حال بررسی...";
+        var report = new List<string>();
+        try
+        {
+            var toolsDir = Path.Combine(AppContext.BaseDirectory, "tools");
+            var xrayPath = Path.Combine(toolsDir, "xray", "xray.exe");
+            var wintunPath = Path.Combine(toolsDir, "xray", "wintun.dll");
+            report.Add(File.Exists(xrayPath) ? "✓ فایل xray.exe پیدا شد." : "✗ فایل xray.exe وجود ندارد.");
+            report.Add(File.Exists(wintunPath) ? "✓ فایل Wintun پیدا شد." : "✗ فایل wintun.dll وجود ندارد.");
+            if (File.Exists(xrayPath))
+            {
+                try
+                {
+                    var start = new ProcessStartInfo(xrayPath)
+                    {
+                        WorkingDirectory = Path.GetDirectoryName(xrayPath)!,
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true
+                    };
+                    start.ArgumentList.Add("version");
+                    using var process = Process.Start(start);
+                    if (process is null) throw new InvalidOperationException("فرایند Xray اجرا نشد.");
+                    var stdout = process.StandardOutput.ReadToEndAsync();
+                    var stderr = process.StandardError.ReadToEndAsync();
+                    try { await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(8)); }
+                    catch (TimeoutException)
+                    {
+                        try { process.Kill(entireProcessTree: true); } catch { }
+                        throw new TimeoutException("پاسخ Xray بیشتر از ۸ ثانیه طول کشید.");
+                    }
+                    var output = ((await stdout) + Environment.NewLine + (await stderr)).Trim();
+                    if (process.ExitCode == 0)
+                        report.Add("✓ اجرای موتور Xray موفق بود." + (string.IsNullOrWhiteSpace(output) ? "" : Environment.NewLine + output));
+                    else
+                        report.Add("✗ Xray اجرا شد اما کد خطا داد: " + process.ExitCode + (string.IsNullOrWhiteSpace(output) ? "" : Environment.NewLine + output));
+                }
+                catch (Exception ex) { report.Add("✗ خطای اجرای Xray: " + ex.Message); }
+            }
+            var passed = File.Exists(xrayPath) && File.Exists(wintunPath) &&
+                report.Any(line => line.StartsWith("✓ اجرای موتور Xray"));
+            var summary = string.Join(Environment.NewLine + Environment.NewLine, report);
+            Log("بررسی موتور Xray:" + Environment.NewLine + summary);
+            MessageBox.Show(summary, passed ? "بررسی موتور Xray — موفق" : "بررسی موتور Xray — نیازمند بررسی",
+                MessageBoxButton.OK, passed ? MessageBoxImage.Information : MessageBoxImage.Warning);
+        }
+        catch (Exception ex)
+        {
+            Log("بررسی موتور Xray ناموفق: " + ex);
+            MessageBox.Show(ex.Message, "بررسی موتور Xray", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            CheckXrayButton.IsEnabled = true;
+            CheckXrayButton.Content = "بررسی موتور Xray";
+        }
+    }
+
     private UpdateService.UpdateInfo? _availableUpdate;
     private bool _updateBusy;
 
