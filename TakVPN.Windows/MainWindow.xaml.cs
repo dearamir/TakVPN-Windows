@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
+using System.Net.NetworkInformation;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
@@ -15,6 +16,9 @@ public partial class MainWindow : Window
     private readonly XrayEngine _engine = new();
     private bool _busy;
     private bool _isClosing;
+    private readonly System.Windows.Threading.DispatcherTimer _trafficTimer = new() { Interval = TimeSpan.FromSeconds(1) };
+    private long _lastSent, _lastReceived;
+    private DateTime _lastTrafficSample;
 
     public MainWindow()
     {
@@ -23,6 +27,8 @@ public partial class MainWindow : Window
         ProfilesList.ItemsSource = _profiles;
         LoadProfiles();
         UpdateButtons();
+        _trafficTimer.Tick += (_, _) => UpdateTrafficStats();
+        _trafficTimer.Start();
     }
 
     private void LoadWindowIcon()
@@ -213,6 +219,7 @@ public partial class MainWindow : Window
             await _engine.StartAsync(profile);
             StatusText.Text = "متصل";
             StatusHint.Text = $"از طریق {profile.Name} و Xray/Wintun";
+            ResetTrafficStats();
         }
         catch (Exception ex)
         {
@@ -232,6 +239,7 @@ public partial class MainWindow : Window
             await _engine.StopAsync();
             StatusText.Text = "قطع شده";
             StatusHint.Text = "تونل VPN بسته شد.";
+            ResetTrafficStats();
         }
         catch (Exception ex) { MessageBox.Show(ex.Message, "TakVPN"); }
         finally { SetBusy(false); UpdateButtons(); }
@@ -268,6 +276,50 @@ public partial class MainWindow : Window
         ProfilesList.Items.Refresh();
     }
 
+    private void ResetTrafficStats()
+    {
+        _lastSent = _lastReceived = 0;
+        _lastTrafficSample = DateTime.MinValue;
+        DetailSendTotal.Text = DetailReceiveTotal.Text = "0 B";
+        DetailSendRate.Text = DetailReceiveRate.Text = "0 B/s";
+    }
+
+    private void UpdateTrafficStats()
+    {
+        if (_isClosing || !_engine.IsRunning) { ResetTrafficStats(); return; }
+        try
+        {
+            var adapter = NetworkInterface.GetAllNetworkInterfaces()
+                .FirstOrDefault(n => n.Name.Contains("TakVPN", StringComparison.OrdinalIgnoreCase)
+                    || n.Description.Contains("TakVPN", StringComparison.OrdinalIgnoreCase));
+            if (adapter is null) return;
+            var stats = adapter.GetIPv4Statistics();
+            long sent = stats.BytesSent, received = stats.BytesReceived;
+            var now = DateTime.UtcNow;
+            if (_lastTrafficSample != DateTime.MinValue)
+            {
+                var seconds = (now - _lastTrafficSample).TotalSeconds;
+                if (seconds > 0)
+                {
+                    DetailSendRate.Text = FormatBytes(Math.Max(0, sent - _lastSent) / seconds) + "/s";
+                    DetailReceiveRate.Text = FormatBytes(Math.Max(0, received - _lastReceived) / seconds) + "/s";
+                }
+            }
+            DetailSendTotal.Text = FormatBytes(sent);
+            DetailReceiveTotal.Text = FormatBytes(received);
+            _lastSent = sent; _lastReceived = received; _lastTrafficSample = now;
+        }
+        catch (Exception ex) { Debug.WriteLine("Traffic stats read failed: " + ex); }
+    }
+
+    private static string FormatBytes(double bytes)
+    {
+        string[] units = { "B", "KB", "MB", "GB", "TB" };
+        var unit = 0;
+        while (bytes >= 1024 && unit < units.Length - 1) { bytes /= 1024; unit++; }
+        return unit == 0 ? $"{bytes:0} {units[unit]}" : $"{bytes:0.##} {units[unit]}";
+    }
+
     private void ClearDetails()
     {
         DetailName.Text = DetailProtocol.Text = DetailHost.Text = DetailPort.Text = "—";
@@ -298,6 +350,7 @@ public partial class MainWindow : Window
     protected override async void OnClosed(EventArgs e)
     {
         _isClosing = true;
+        _trafficTimer.Stop();
         base.OnClosed(e);
         try { await _engine.StopAsync(); }
         catch (Exception ex) { Debug.WriteLine($"VPN shutdown cleanup failed: {ex}"); }
