@@ -280,7 +280,16 @@ public partial class MainWindow : Window
     {
         _lastSent = _lastReceived = _baseSent = _baseReceived = 0;
         _lastTrafficSample = DateTime.MinValue;
-        if (_engine.IsRunning)\n        {\n            try\n            {\n                var nic = NetworkInterface.GetAllNetworkInterfaces().FirstOrDefault(n => n.Name.Contains("TakVPN", StringComparison.OrdinalIgnoreCase) || n.Description.Contains("TakVPN", StringComparison.OrdinalIgnoreCase));\n                if (nic != null) { var s = nic.GetIPv4Statistics(); _baseSent = s.BytesSent; _baseReceived = s.BytesReceived; }\n            }\n            catch (Exception ex) { Debug.WriteLine("Traffic baseline failed: " + ex); }\n        }\n        DetailSendTotal.Text = DetailReceiveTotal.Text = "0 B";
+        if (_engine.IsRunning)
+        {
+            try
+            {
+                var nic = NetworkInterface.GetAllNetworkInterfaces().FirstOrDefault(n => n.Name.Contains("TakVPN", StringComparison.OrdinalIgnoreCase) || n.Description.Contains("TakVPN", StringComparison.OrdinalIgnoreCase));
+                if (nic != null) { var s = nic.GetIPv4Statistics(); _baseSent = s.BytesSent; _baseReceived = s.BytesReceived; }
+            }
+            catch (Exception ex) { Debug.WriteLine("Traffic baseline failed: " + ex); }
+        }
+        DetailSendTotal.Text = DetailReceiveTotal.Text = "0 B";
         DetailSendRate.Text = DetailReceiveRate.Text = "0 B/s";
     }
 
