@@ -3,6 +3,7 @@ using System.Net.Http;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
+using System.Net.NetworkInformation;
 using System.Net.Security;
 using System.Security.Authentication;
 using System.Text;
@@ -83,6 +84,7 @@ public sealed class XrayEngine : IDisposable
                     $"{details}{Environment.NewLine}{Environment.NewLine}" +
                     $"Full log: {Path.Combine(_dataDir, "xray-startup.log")}");
             }
+            await WaitForTunAdapterAsync("Xray");
         }
         catch
         {
@@ -177,6 +179,7 @@ public sealed class XrayEngine : IDisposable
             _process.BeginOutputReadLine(); _process.BeginErrorReadLine();
             await Task.Delay(1800);
             if (_process.HasExited) throw new InvalidOperationException("sing-box exited during Hysteria2 startup. Check app.log and xray-startup.log.");
+            await WaitForTunAdapterAsync("sing-box");
         }
         catch
         {
@@ -186,6 +189,62 @@ public sealed class XrayEngine : IDisposable
             finally { failed?.Dispose(); }
             throw;
         }
+    }
+
+    private async Task WaitForTunAdapterAsync(string engineName)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(12);
+        NetworkInterface[] adapters = Array.Empty<NetworkInterface>();
+        while (DateTime.UtcNow < deadline)
+        {
+            if (!IsRunning)
+                throw new InvalidOperationException($"{engineName} stopped while Windows was creating the TakVPN tunnel.");
+
+            adapters = NetworkInterface.GetAllNetworkInterfaces();
+            var tunnel = adapters.FirstOrDefault(n =>
+                n.OperationalStatus == OperationalStatus.Up &&
+                (string.Equals(n.Name, "TakVPN", StringComparison.OrdinalIgnoreCase) ||
+                 n.Description.Contains("TakVPN Tunnel", StringComparison.OrdinalIgnoreCase) ||
+                 (n.Name.Contains("TakVPN", StringComparison.OrdinalIgnoreCase) &&
+                  n.NetworkInterfaceType == NetworkInterfaceType.Tunnel)));
+
+            if (tunnel is not null)
+            {
+                var addresses = string.Join(", ", tunnel.GetIPProperties().UnicastAddresses.Select(a => a.Address.ToString()));
+                var line = $"[{engineName}] TUN ready: {tunnel.Name} / {tunnel.Description}; addresses: {addresses}";
+                Debug.WriteLine(line);
+                try { File.AppendAllText(Path.Combine(_dataDir, "xray-startup.log"), line + Environment.NewLine, new UTF8Encoding(false)); } catch { }
+                return;
+            }
+            await Task.Delay(300);
+        }
+
+        var found = adapters.Length == 0
+            ? "هیچ آداپتور شبکه‌ای پیدا نشد."
+            : string.Join(Environment.NewLine, adapters.Select(n =>
+                $"{n.Name} | {n.Description} | {n.NetworkInterfaceType} | {n.OperationalStatus}"));
+        string routes = "";
+        try
+        {
+            using var route = Process.Start(new ProcessStartInfo("route.exe", "print")
+            {
+                UseShellExecute = false, CreateNoWindow = true,
+                RedirectStandardOutput = true, RedirectStandardError = true
+            });
+            if (route is not null)
+            {
+                var output = await route.StandardOutput.ReadToEndAsync();
+                var error = await route.StandardError.ReadToEndAsync();
+                await route.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(3));
+                routes = Environment.NewLine + "route print:" + Environment.NewLine + output + error;
+                if (routes.Length > 12000) routes = routes[..12000];
+            }
+        }
+        catch (Exception ex) { routes = Environment.NewLine + "route print failed: " + ex.Message; }
+
+        throw new InvalidOperationException(
+            $"هسته {engineName} اجرا شده، اما آداپتور شبکه TakVPN در ویندوز فعال نشد. اتصال به‌عنوان موفق اعلام نشد." +
+            Environment.NewLine + "آداپتورهای شناسایی‌شده:" + Environment.NewLine + found + routes);
     }
 
     public async Task StopAsync()
