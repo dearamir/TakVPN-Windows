@@ -87,6 +87,9 @@ jobs:
           $tools = Join-Path $publish "tools/xray"
           New-Item -ItemType Directory -Force -Path $tools | Out-Null
           Copy-Item "TakVPN.Windows/tools/xray/*" $tools -Recurse -Force
+          $singBoxTools = Join-Path $publish "tools/sing-box"
+          New-Item -ItemType Directory -Force -Path $singBoxTools | Out-Null
+          Copy-Item "TakVPN.Windows/tools/sing-box/*" $singBoxTools -Recurse -Force
       - name: Create installer
         shell: pwsh
         run: |
