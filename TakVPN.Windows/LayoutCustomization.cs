@@ -53,7 +53,13 @@ public sealed class LayoutCustomization
         _window.Loaded += (_, _) => Load();
         _window.PreviewKeyDown += (_, e) =>
         {
-            if (e.Key == Key.Escape && _editing)
+            if (e.Key == Key.R && Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift))
+            {
+                Reset();
+                SetEditing(false);
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Escape && _editing)
             {
                 Reset();
                 SetEditing(false);
@@ -73,19 +79,58 @@ public sealed class LayoutCustomization
         {
             if (!File.Exists(_path)) return;
             var state = JsonSerializer.Deserialize<LayoutState>(File.ReadAllText(_path));
-            if (state is null) return;
+            if (state is null) { RecoverInvalidLayout("فایل چیدمان خالی یا نامعتبر بود."); return; }
+
+            // Validate persisted geometry before applying it so stale coordinates cannot
+            // move every panel outside the visible window.
             foreach (var panel in _panels)
             {
-                if (state.Panels.TryGetValue(panel.Name, out var saved))
+                if (!state.Panels.TryGetValue(panel.Name, out var saved)) continue;
+                var parent = VisualTreeHelper.GetParent(panel) as FrameworkElement;
+                var maxWidth = parent is { ActualWidth: > 0 } ? parent.ActualWidth : _window.ActualWidth;
+                var maxHeight = parent is { ActualHeight: > 0 } ? parent.ActualHeight : _window.ActualHeight;
+                if (!double.IsFinite(saved.X) || !double.IsFinite(saved.Y) ||
+                    !double.IsFinite(saved.Width) || !double.IsFinite(saved.Height) ||
+                    Math.Abs(saved.X) > Math.Max(500, maxWidth * 2) ||
+                    Math.Abs(saved.Y) > Math.Max(500, maxHeight * 2) ||
+                    saved.Width < 0 || saved.Height < 0 ||
+                    saved.Width > Math.Max(500, maxWidth * 1.5) ||
+                    saved.Height > Math.Max(300, maxHeight * 1.5))
                 {
-                    panel.RenderTransform = new TranslateTransform(saved.X, saved.Y);
-                    if (saved.Width > 0) panel.Width = saved.Width;
-                    if (saved.Height > 0) panel.Height = saved.Height;
+                    RecoverInvalidLayout("مقادیر ذخیره‌شده خارج از محدوده صفحه بودند.");
+                    return;
                 }
+
+                panel.RenderTransform = new TranslateTransform(
+                    Math.Clamp(saved.X, 90 - Math.Max(panel.ActualWidth, 90), Math.Max(0, maxWidth - 90)),
+                    Math.Clamp(saved.Y, 90 - Math.Max(panel.ActualHeight, 90), Math.Max(0, maxHeight - 90)));
+                if (saved.Width > 0) panel.Width = Math.Min(saved.Width, Math.Max(180, maxWidth));
+                if (saved.Height > 0) panel.Height = Math.Min(saved.Height, Math.Max(70, maxHeight));
             }
-            ApplyToolbarOrder(state.ToolbarOrder);
+            ApplyToolbarOrder(state.ToolbarOrder ?? new List<string>());
         }
-        catch (Exception ex) { System.Diagnostics.Debug.WriteLine("Layout load failed: " + ex.Message); }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("Layout load failed: " + ex.Message);
+            RecoverInvalidLayout("خواندن چیدمان ذخیره‌شده ناموفق بود.");
+        }
+    }
+
+    private void RecoverInvalidLayout(string reason)
+    {
+        foreach (var panel in _panels)
+        {
+            panel.RenderTransform = Transform.Identity;
+            panel.Width = double.NaN;
+            panel.Height = double.NaN;
+        }
+        ApplyToolbarOrder(_defaultToolbarOrder);
+        try
+        {
+            if (File.Exists(_path)) File.Delete(_path);
+        }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine("Layout recovery cleanup failed: " + ex.Message); }
+        System.Diagnostics.Debug.WriteLine("Layout automatically recovered: " + reason);
     }
 
     private void SetEditing(bool enabled)
