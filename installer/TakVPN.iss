@@ -11,7 +11,7 @@ AppPublisher={#MyAppPublisher}
 DefaultDirName={autopf}\TakVPN
 DefaultGroupName=TakVPN
 DisableProgramGroupPage=yes
-OutputDir=../..
+OutputDir=.
 OutputBaseFilename=TakVPN-Setup-x64
 ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
@@ -28,7 +28,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
 
 [Files]
-Source: "../TakVPN.Windows/bin/Release/net8.0-windows/win-x64/publish/*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\TakVPN.Windows\bin\Release\net8.0-windows\win-x64\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\TakVPN"; Filename: "{app}\{#MyAppExeName}"
