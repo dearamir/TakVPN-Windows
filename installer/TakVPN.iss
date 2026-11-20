@@ -1,5 +1,7 @@
 #define MyAppName "TakVPN"
-#define MyAppVersion "0.1.0"
+#ifndef MyAppVersion
+  #define MyAppVersion "0.1.35"
+#endif
 #define MyAppPublisher "TakVPN"
 #define MyAppExeName "TakVPN.exe"
 
