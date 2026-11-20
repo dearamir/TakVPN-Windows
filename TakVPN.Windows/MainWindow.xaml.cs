@@ -98,7 +98,7 @@ public partial class MainWindow : Window
 
     private async void TestProfile_Click(object sender, RoutedEventArgs e)
     {
-        if (_isClosing || _busy || _engine.IsRunning || sender is not Button { Tag: VpnProfile profile }) return;
+        if (_isClosing || _busy || sender is not Button { Tag: VpnProfile profile }) return;
         SetBusy(true, $"در حال پینگ {profile.Name}…");
         try
         {
@@ -158,7 +158,7 @@ public partial class MainWindow : Window
 
     private async void TestAll_Click(object sender, RoutedEventArgs e)
     {
-        if (_isClosing || _busy || _engine.IsRunning || _profiles.Count == 0) return;
+        if (_isClosing || _busy || _profiles.Count == 0) return;
         SetBusy(true, "آغاز تست گروهی؛ هر کانفیگ جداگانه از مسیر Xray بررسی می‌شود…");
         var passed = 0;
         try
@@ -246,7 +246,7 @@ public partial class MainWindow : Window
         DisconnectButton.IsEnabled = !busy && _engine.IsRunning;
         TestButton.IsEnabled = !busy && !_engine.IsRunning && ProfilesList.SelectedItem is VpnProfile;
         TestAllButton.IsEnabled = !busy && !_engine.IsRunning && _profiles.Count > 0;
-        ProfilesList.IsEnabled = !busy && !_engine.IsRunning;
+        ProfilesList.IsEnabled = !busy;
     }
 
     private void UpdateButtons() => SetBusy(false);
