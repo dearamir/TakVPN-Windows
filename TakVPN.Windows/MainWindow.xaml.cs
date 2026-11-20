@@ -289,12 +289,13 @@ public partial class MainWindow : Window
         {
             try
             {
-                var nic = NetworkInterface.GetAllNetworkInterfaces().FirstOrDefault(n => n.Name.Contains("TakVPN", StringComparison.OrdinalIgnoreCase) || n.Description.Contains("TakVPN", StringComparison.OrdinalIgnoreCase));
+                var nic = FindVpnAdapter();
                 if (nic != null) { var s = nic.GetIPv4Statistics(); _baseSent = s.BytesSent; _baseReceived = s.BytesReceived; }
             }
             catch (Exception ex) { Debug.WriteLine("Traffic baseline failed: " + ex); }
         }
         DetailSendTotal.Text = DetailReceiveTotal.Text = "0 B";
+        DetailTotalTraffic.Text = "مجموع مصرف: 0 B";
         DetailSendRate.Text = DetailReceiveRate.Text = "0 B/s";
     }
 
@@ -303,9 +304,7 @@ public partial class MainWindow : Window
         if (_isClosing || !_engine.IsRunning) { ResetTrafficStats(); return; }
         try
         {
-            var adapter = NetworkInterface.GetAllNetworkInterfaces()
-                .FirstOrDefault(n => n.Name.Contains("TakVPN", StringComparison.OrdinalIgnoreCase)
-                    || n.Description.Contains("TakVPN", StringComparison.OrdinalIgnoreCase));
+            var adapter = FindVpnAdapter();
             if (adapter is null) return;
             var stats = adapter.GetIPv4Statistics();
             long sent = Math.Max(0, stats.BytesSent - _baseSent), received = Math.Max(0, stats.BytesReceived - _baseReceived);
@@ -325,6 +324,17 @@ public partial class MainWindow : Window
             _lastSent = sent; _lastReceived = received; _lastTrafficSample = now;
         }
         catch (Exception ex) { Debug.WriteLine("Traffic stats read failed: " + ex); }
+    }
+
+    private static NetworkInterface? FindVpnAdapter()
+    {
+        var adapters = NetworkInterface.GetAllNetworkInterfaces();
+        return adapters.FirstOrDefault(n =>
+            n.Name.Contains("TakVPN", StringComparison.OrdinalIgnoreCase) ||
+            n.Description.Contains("TakVPN", StringComparison.OrdinalIgnoreCase))
+            ?? adapters.FirstOrDefault(n =>
+                n.NetworkInterfaceType == NetworkInterfaceType.Tunnel &&
+                n.OperationalStatus == OperationalStatus.Up);
     }
 
     private static string FormatBytes(double bytes)
