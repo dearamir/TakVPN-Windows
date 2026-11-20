@@ -259,6 +259,23 @@ public partial class MainWindow : Window
 
     private void UpdateButtons() => SetBusy(false);
 
+    private void SortProfiles_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!IsInitialized || SortProfilesBox.SelectedIndex < 0 || _profiles.Count < 2) return;
+        var selected = ProfilesList.SelectedItem as VpnProfile;
+        IEnumerable<VpnProfile> ordered = SortProfilesBox.SelectedIndex switch
+        {
+            1 => _profiles.OrderBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase),
+            2 => _profiles.OrderBy(p => p.LatencyMs ?? int.MaxValue),
+            3 => _profiles.OrderByDescending(p => p.LatencyMs ?? int.MinValue),
+            _ => _profiles.ToList()
+        };
+        var snapshot = ordered.ToList();
+        _profiles.Clear();
+        foreach (var profile in snapshot) _profiles.Add(profile);
+        if (selected != null) ProfilesList.SelectedItem = selected;
+    }
+
     private void ProfilesList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         RefreshSelected();
