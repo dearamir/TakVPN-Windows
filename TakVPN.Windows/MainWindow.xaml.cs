@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media.Imaging;
+using System.Reflection;
 
 namespace TakVPN.Windows;
 
@@ -28,13 +29,93 @@ public partial class MainWindow : Window
         InitializeComponent();
         FitWindowToWorkArea();
         LoadWindowIcon();
-        AppVersionText.Text = "نسخه 0.1.33";
+        AppVersionText.Text = "نسخه " + (Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3) ?? "0.1.35");
         UpdateVpnStatusIcon(false);
         ProfilesList.ItemsSource = _profiles;
         LoadProfiles();
         UpdateButtons();
         _trafficTimer.Tick += (_, _) => { UpdateTrafficStats(); RefreshEngineLogs(); };
         _trafficTimer.Start();
+    }
+
+    private UpdateService.UpdateInfo? _availableUpdate;
+    private bool _updateBusy;
+
+    private async void CheckForUpdates_Click(object sender, RoutedEventArgs e)
+    {
+        if (_updateBusy) return;
+        _updateBusy = true;
+        CheckUpdateButton.IsEnabled = false;
+        InstallUpdateButton.Visibility = Visibility.Collapsed;
+        UpdateStatusText.Text = "در حال بررسی نسخه جدید...";
+        try
+        {
+            var update = await UpdateService.CheckAsync();
+            if (update is null)
+            {
+                _availableUpdate = null;
+                UpdateStatusText.Text = "نسخه فعلی به‌روز است.";
+                MessageBox.Show("در حال حاضر نسخه جدیدتری منتشر نشده است.", "بروزرسانی TakVPN", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            _availableUpdate = update;
+            UpdateStatusText.Text = $"نسخه جدید {update.Version} آماده است.";
+            InstallUpdateButton.Visibility = Visibility.Visible;
+            MessageBox.Show($"نسخه فعلی: {UpdateService.CurrentVersion}\nنسخه جدید: {update.Version}\n\n{(string.IsNullOrWhiteSpace(update.Notes) ? "بهبودها و اصلاحات برنامه" : update.Notes)}\n\nبرای دریافت و نصب، روی «دانلود و نصب بروزرسانی» بزنید.", "بروزرسانی TakVPN", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            UpdateStatusText.Text = "بررسی بروزرسانی ناموفق بود.";
+            Log("بررسی بروزرسانی ناموفق: " + ex.Message);
+            MessageBox.Show("ارتباط با سرور بروزرسانی برقرار نشد:\n" + ex.Message, "TakVPN", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        finally
+        {
+            _updateBusy = false;
+            CheckUpdateButton.IsEnabled = true;
+        }
+    }
+
+    private async void InstallUpdate_Click(object sender, RoutedEventArgs e)
+    {
+        if (_updateBusy || _availableUpdate is null) return;
+        if (MessageBox.Show($"نسخه {_availableUpdate.Version} دانلود و نصب شود؟ برنامه هنگام نصب بسته و پس از نصب دوباره اجرا می‌شود.", "نصب بروزرسانی", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+            return;
+
+        _updateBusy = true;
+        CheckUpdateButton.IsEnabled = false;
+        InstallUpdateButton.IsEnabled = false;
+        UpdateProgressBar.Visibility = Visibility.Visible;
+        UpdateProgressBar.Value = 0;
+        try
+        {
+            UpdateStatusText.Text = "در حال دانلود بروزرسانی...";
+            var progress = new Progress<double>(value => UpdateProgressBar.Value = value);
+            var installerPath = await UpdateService.DownloadInstallerAsync(_availableUpdate, progress);
+            UpdateStatusText.Text = "دانلود و بررسی فایل کامل شد؛ در حال آماده‌سازی نصب...";
+            await _engine.StopAsync();
+            _isClosing = true;
+            _trafficTimer.Stop();
+            UpdateService.StartInstaller(installerPath);
+            Application.Current.Shutdown();
+        }
+        catch (Exception ex)
+        {
+            _isClosing = false;
+            UpdateStatusText.Text = "نصب بروزرسانی انجام نشد.";
+            Log("نصب بروزرسانی ناموفق: " + ex);
+            MessageBox.Show("بروزرسانی نصب نشد. نسخه فعلی بدون تغییر باقی مانده است.\n\n" + ex.Message, "TakVPN", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            if (!_isClosing)
+            {
+                _updateBusy = false;
+                CheckUpdateButton.IsEnabled = true;
+                InstallUpdateButton.IsEnabled = true;
+            }
+        }
     }
 
     private void FitWindowToWorkArea()
