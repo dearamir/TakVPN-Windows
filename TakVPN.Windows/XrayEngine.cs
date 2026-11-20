@@ -126,12 +126,12 @@ public sealed class XrayEngine : IDisposable
         var config = new JsonObject
         {
             ["log"] = new JsonObject { ["level"] = "info", ["timestamp"] = true },
-            ["dns"] = new JsonObject { ["servers"] = new JsonArray(new JsonObject { ["tag"] = "remote", ["address"] = "1.1.1.1" }) },
+            ["dns"] = new JsonObject { ["servers"] = new JsonArray(new JsonObject { ["type"] = "udp", ["tag"] = "remote", ["server"] = "1.1.1.1" }), ["final"] = "remote" },
             ["inbounds"] = new JsonArray(new JsonObject
             {
                 ["type"] = "tun", ["tag"] = "tun-in", ["interface_name"] = "TakVPN",
                 ["address"] = new JsonArray("172.19.0.1/30", "fdfe:dcba:9876::1/126"),
-                ["mtu"] = 1500, ["auto_route"] = true, ["strict_route"] = true
+                ["mtu"] = 1500, ["stack"] = "mixed", ["auto_route"] = true, ["strict_route"] = true
             }),
             ["outbounds"] = new JsonArray(outbound,
                 new JsonObject { ["type"] = "direct", ["tag"] = "direct" },
