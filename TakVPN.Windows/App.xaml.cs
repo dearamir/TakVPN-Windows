@@ -20,6 +20,7 @@ public partial class App : Application
             WriteCrashLog(args.Exception);
             args.SetObserved();
         };
+        SessionEnding += (_, _) => _allowExit = true;
         base.OnStartup(e);
 
         if (MainWindow is not null)
@@ -58,7 +59,7 @@ public partial class App : Application
 
     private void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
-        if (_allowExit) return;
+        if (_allowExit || _trayIcon is null) return;
         e.Cancel = true;
         MainWindow.Hide();
         _trayIcon?.ShowBalloonTip(1800, "TakVPN", "برنامه در کنار ساعت ویندوز در حال اجراست.", Forms.ToolTipIcon.Info);
