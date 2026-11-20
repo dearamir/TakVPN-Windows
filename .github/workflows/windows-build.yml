@@ -10,11 +10,18 @@ on:
 permissions:
   contents: write
 
+# Serialize release workflows so two runs cannot select the same version.
+concurrency:
+  group: takvpn-windows-release
+  cancel-in-progress: false
+
 jobs:
   build-windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
@@ -91,5 +98,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          $tag = "windows-v0.1.${{ github.run_number }}"
-          gh release create $tag "TakVPN-Setup-x64.exe" "TakVPN-Windows-x64-portable.zip" --title "TakVPN Windows $tag" --notes "Independent Windows x64 build of TakVPN."
+          $tags = git tag -l "windows-v0.1.*"
+          $patches = @($tags | ForEach-Object { if ($_ -match '^windows-v0\.1\.(\d+)
+) { [int]$Matches[1] } })
+          $nextPatch = if ($patches.Count -gt 0) { ($patches | Measure-Object -Maximum).Maximum + 1 } else { 1 }
+          $tag = "windows-v0.1.$nextPatch"
+          gh release create $tag "TakVPN-Setup-x64.exe" "TakVPN-Windows-x64-portable.zip" --title "TakVPN Windows $tag" --notes "Independent Windows x64 build of TakVPN." --latest
