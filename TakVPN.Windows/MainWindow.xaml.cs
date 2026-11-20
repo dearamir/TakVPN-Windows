@@ -423,6 +423,84 @@ public partial class MainWindow : Window
         UpdateButtons();
     }
 
+
+    private static string BuildFullConfigDetails(VpnProfile profile)
+    {
+        var lines = new List<string>
+        {
+            $"پروتکل: {profile.Protocol}",
+            $"سرور: {profile.Host}",
+            $"پورت: {profile.Port}"
+        };
+        void Add(string label, string? value)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+                lines.Add($"{label}: {value}");
+        }
+
+        try
+        {
+            if (profile.Link.StartsWith("vmess://", StringComparison.OrdinalIgnoreCase))
+            {
+                var payload = profile.Link["vmess://".Length..].Split('#', '?')[0]
+                    .Replace('-', '+').Replace('_', '/');
+                payload += new string('=', (4 - payload.Length % 4) % 4);
+                using var doc = JsonDocument.Parse(Convert.FromBase64String(payload));
+                var root = doc.RootElement;
+                var labels = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["id"]="شناسه UUID", ["aid"]="Alter ID", ["scy"]="رمزنگاری",
+                    ["net"]="نوع انتقال", ["type"]="نوع هدر", ["host"]="Host / CDN",
+                    ["path"]="مسیر", ["tls"]="امنیت TLS", ["sni"]="SNI",
+                    ["alpn"]="ALPN", ["fp"]="Fingerprint", ["ps"]="نام کانفیگ",
+                    ["v"]="نسخه", ["port"]="پورت", ["add"]="آدرس"
+                };
+                foreach (var property in root.EnumerateObject())
+                    Add(labels.GetValueOrDefault(property.Name, property.Name), property.Value.ToString());
+            }
+            else if (Uri.TryCreate(profile.Link, UriKind.Absolute, out var uri))
+            {
+                Add("شناسه / کاربر", Uri.UnescapeDataString(uri.UserInfo));
+                var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
+                var labels = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["type"]="نوع انتقال", ["security"]="لایه امنیت", ["sni"]="نام سرور (SNI)",
+                    ["host"]="Host / CDN", ["path"]="مسیر", ["serviceName"]="نام سرویس gRPC",
+                    ["flow"]="Flow", ["encryption"]="رمزنگاری", ["fp"]="Fingerprint",
+                    ["alpn"]="ALPN", ["pbk"]="کلید عمومی Reality", ["sid"]="شناسه کوتاه Reality",
+                    ["spx"]="مسیر SpiderX", ["mode"]="حالت XHTTP", ["headerType"]="نوع هدر",
+                    ["allowInsecure"]="اجازه گواهی ناامن", ["insecure"]="گواهی ناامن",
+                    ["obfs"]="Obfuscation", ["obfs-password"]="رمز Obfuscation",
+                    [" pinSHA256"]="اثر انگشت گواهی"
+                };
+                foreach (var key in query.AllKeys.Where(k => !string.IsNullOrWhiteSpace(k)))
+                    Add(labels.GetValueOrDefault(key!, key!), query[key!]);
+                Add("نام کانفیگ", Uri.UnescapeDataString(uri.Fragment.TrimStart('#')));
+                if (uri.Scheme.Equals("hysteria2", StringComparison.OrdinalIgnoreCase) ||
+                    uri.Scheme.Equals("hy2", StringComparison.OrdinalIgnoreCase))
+                    Add("نوع پروتکل", "Hysteria 2 / مبتنی بر QUIC");
+                if (query["security"]?.Equals("reality", StringComparison.OrdinalIgnoreCase) == true)
+                    Add("نوع امنیت", "Reality");
+                else if (query["security"]?.Equals("tls", StringComparison.OrdinalIgnoreCase) == true)
+                    Add("نوع امنیت", "TLS");
+                if (!string.IsNullOrWhiteSpace(query["host"]))
+                    Add("نوع مسیر", "دارای Host؛ قابل استفاده برای CDN یا دامنه واسط");
+            }
+            else
+            {
+                Add("لینک خام", profile.Link);
+            }
+        }
+        catch (Exception ex)
+        {
+            Add("توضیح", "تجزیه بعضی پارامترها ممکن نشد: " + ex.Message);
+            Add("لینک کامل", profile.Link);
+        }
+
+        Add("لینک کامل کانفیگ", profile.Link);
+        return string.Join(Environment.NewLine, lines);
+    }
+
     private void RefreshSelected()
     {
         if (ProfilesList.SelectedItem is not VpnProfile p) { ClearDetails(); return; }
@@ -430,6 +508,7 @@ public partial class MainWindow : Window
         DetailProtocol.Text = p.Protocol;
         DetailHost.Text = p.Host;
         DetailPort.Text = p.Port.ToString();
+        DetailFullConfig.Text = BuildFullConfigDetails(p);
         DetailLatency.Text = p.LatencyMs is null ? "اندازه‌گیری نشده" : $"{p.LatencyMs} ms";
         DetailServerLocation.Text = p.Host + "  •  در حال شناسایی IP و کشور";
         _ = UpdateServerLocationAsync(p);
@@ -554,6 +633,7 @@ public partial class MainWindow : Window
     private void ClearDetails()
     {
         DetailName.Text = DetailProtocol.Text = DetailHost.Text = DetailPort.Text = "—";
+        DetailFullConfig.Text = "—";
         DetailLatency.Text = "اندازه‌گیری نشده";
         DetailServerLocation.Text = "—";
         DetailTotalTraffic.Text = "مجموع مصرف: 0 B";
