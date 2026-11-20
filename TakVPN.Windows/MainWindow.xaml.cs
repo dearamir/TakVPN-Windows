@@ -360,6 +360,7 @@ public partial class MainWindow : Window
             Log("در حال اتصال به " + profile.Name + " (" + profile.Protocol + ")");
             await _engine.StartAsync(profile);
             _activeProfile = profile;
+            UpdateVpnStatusIcon(true);
             Log("اتصال برقرار شد: " + profile.Name);
             StatusText.Text = "متصل";
             StatusHint.Text = $"از طریق {profile.Name} و Xray/Wintun";
@@ -369,6 +370,7 @@ public partial class MainWindow : Window
         {
             Log("خطای اتصال: " + ex.Message);
             _activeProfile = null;
+            UpdateVpnStatusIcon(false);
             StatusText.Text = "اتصال برقرار نشد";
             StatusHint.Text = ex.Message;
             MessageBox.Show(ex.Message, "TakVPN - اتصال", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -384,6 +386,7 @@ public partial class MainWindow : Window
         {
             await _engine.StopAsync();
             _activeProfile = null;
+            UpdateVpnStatusIcon(false);
             Log("اتصال VPN قطع شد.");
             StatusText.Text = "قطع شده";
             StatusHint.Text = "تونل VPN بسته شد.";
@@ -391,6 +394,15 @@ public partial class MainWindow : Window
         }
         catch (Exception ex) { MessageBox.Show(ex.Message, "TakVPN"); }
         finally { SetBusy(false); UpdateButtons(); }
+    }
+
+    private void UpdateVpnStatusIcon(bool connected)
+    {
+        VpnStatusIcon.Fill = connected
+            ? System.Windows.Media.Brushes.LimeGreen
+            : System.Windows.Media.Brushes.White;
+        VpnStatusIcon.Stroke = VpnStatusIcon.Fill;
+        VpnStatusIcon.ToolTip = connected ? "VPN متصل است" : "VPN قطع است";
     }
 
     private void SetBusy(bool busy, string? hint = null)
