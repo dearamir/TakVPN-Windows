@@ -19,6 +19,8 @@ public partial class MainWindow : Window
     private readonly System.Windows.Threading.DispatcherTimer _trafficTimer = new() { Interval = TimeSpan.FromSeconds(1) };
     private long _lastSent, _lastReceived, _baseSent, _baseReceived;
     private DateTime _lastTrafficSample;
+    private VpnProfile? _activeProfile;
+    private readonly HashSet<string> _shownLogLines = new(StringComparer.Ordinal);
 
     public MainWindow()
     {
@@ -27,7 +29,7 @@ public partial class MainWindow : Window
         ProfilesList.ItemsSource = _profiles;
         LoadProfiles();
         UpdateButtons();
-        _trafficTimer.Tick += (_, _) => UpdateTrafficStats();
+        _trafficTimer.Tick += (_, _) => { UpdateTrafficStats(); RefreshEngineLogs(); };
         _trafficTimer.Start();
     }
 
@@ -58,39 +60,21 @@ public partial class MainWindow : Window
     {
         try
         {
-            var link = ConfigInput.Text.Trim();
-            if (string.IsNullOrWhiteSpace(link))
+            var links = ConfigInput.Text.Split(new[] { '\r', '\n', '\t', ' ' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (links.Length == 0) { MessageBox.Show("لینک یک یا چند کانفیگ را وارد کنید.", "TakVPN"); return; }
+            var added = 0; var skipped = 0; var errors = new List<string>();
+            foreach (var link in links)
             {
-                MessageBox.Show("ابتدا لینک کانفیگ VLESS را وارد کنید.", "TakVPN", MessageBoxButton.OK, MessageBoxImage.Information);
-                return;
+                if (_profiles.Any(p => string.Equals(p.Link, link, StringComparison.Ordinal))) { skipped++; continue; }
+                if (!VpnProfile.TryParse(link, out var profile, out var error) || profile is null) { errors.Add(error); continue; }
+                _profiles.Add(profile); ProfilesList.SelectedItem = profile; added++;
             }
-
-            if (!VpnProfile.TryParse(link, out var profile, out var error) || profile is null)
-            {
-                MessageBox.Show(error, "TakVPN", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
-            if (_profiles.Any(p => string.Equals(p.Link, link, StringComparison.Ordinal)))
-            {
-                MessageBox.Show("این کانفیگ قبلاً اضافه شده است.", "TakVPN", MessageBoxButton.OK, MessageBoxImage.Information);
-                return;
-            }
-
-            _profiles.Add(profile);
-            ProfilesList.SelectedItem = profile;
             ConfigInput.Clear();
             SaveProfiles();
+            Log("افزودن گروهی: " + added + " اضافه، " + skipped + " تکراری، " + errors.Count + " نامعتبر");
+            if (errors.Count > 0) MessageBox.Show("افزوده شد: " + added + "\nتکراری: " + skipped + "\nنامعتبر: " + errors.Count + "\n\n" + string.Join("\n", errors.Take(5)), "نتیجه افزودن گروهی");
         }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"Add VLESS config failed: {ex}");
-            MessageBox.Show(
-                $"افزودن کانفیگ انجام نشد؛ برنامه نباید بسته شود.\n{ex.Message}",
-                "TakVPN - خطای افزودن کانفیگ",
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
-        }
+        catch (Exception ex) { Log("خطا در افزودن کانفیگ: " + ex.Message); MessageBox.Show(ex.Message, "TakVPN"); }
     }
 
     private void RemoveConfig_Click(object sender, RoutedEventArgs e)
@@ -216,13 +200,19 @@ public partial class MainWindow : Window
         SetBusy(true, "در حال ایجاد تونل امن…");
         try
         {
+            if (_engine.IsRunning) { Log("تغییر کانفیگ: توقف " + (_activeProfile?.Name ?? "اتصال قبلی")); await _engine.StopAsync(); }
+            Log("در حال اتصال به " + profile.Name + " (" + profile.Protocol + ")");
             await _engine.StartAsync(profile);
+            _activeProfile = profile;
+            Log("اتصال برقرار شد: " + profile.Name);
             StatusText.Text = "متصل";
             StatusHint.Text = $"از طریق {profile.Name} و Xray/Wintun";
             ResetTrafficStats();
         }
         catch (Exception ex)
         {
+            Log("خطای اتصال: " + ex.Message);
+            _activeProfile = null;
             StatusText.Text = "اتصال برقرار نشد";
             StatusHint.Text = ex.Message;
             MessageBox.Show(ex.Message, "TakVPN - اتصال", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -237,6 +227,8 @@ public partial class MainWindow : Window
         try
         {
             await _engine.StopAsync();
+            _activeProfile = null;
+            Log("اتصال VPN قطع شد.");
             StatusText.Text = "قطع شده";
             StatusHint.Text = "تونل VPN بسته شد.";
             ResetTrafficStats();
@@ -250,7 +242,7 @@ public partial class MainWindow : Window
         if (_isClosing) return;
         _busy = busy;
         if (hint is not null) StatusHint.Text = hint;
-        ConnectButton.IsEnabled = !busy && !_engine.IsRunning && ProfilesList.SelectedItem is VpnProfile;
+        ConnectButton.IsEnabled = !busy && ProfilesList.SelectedItem is VpnProfile && (!_engine.IsRunning || ProfilesList.SelectedItem != _activeProfile);
         DisconnectButton.IsEnabled = !busy && _engine.IsRunning;
         TestButton.IsEnabled = !busy && !_engine.IsRunning && ProfilesList.SelectedItem is VpnProfile;
         TestAllButton.IsEnabled = !busy && !_engine.IsRunning && _profiles.Count > 0;
@@ -259,21 +251,14 @@ public partial class MainWindow : Window
 
     private void UpdateButtons() => SetBusy(false);
 
-    private void SortProfiles_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void SortByPing_Click(object sender, RoutedEventArgs e)
     {
-        if (!IsInitialized || SortProfilesBox.SelectedIndex < 0 || _profiles.Count < 2) return;
         var selected = ProfilesList.SelectedItem as VpnProfile;
-        IEnumerable<VpnProfile> ordered = SortProfilesBox.SelectedIndex switch
-        {
-            1 => _profiles.OrderBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase),
-            2 => _profiles.OrderBy(p => p.LatencyMs ?? int.MaxValue),
-            3 => _profiles.OrderByDescending(p => p.LatencyMs ?? int.MinValue),
-            _ => _profiles.ToList()
-        };
-        var snapshot = ordered.ToList();
+        var sorted = _profiles.OrderBy(p => p.LatencyMs ?? int.MaxValue).ToList();
         _profiles.Clear();
-        foreach (var profile in snapshot) _profiles.Add(profile);
+        foreach (var profile in sorted) _profiles.Add(profile);
         if (selected != null) ProfilesList.SelectedItem = selected;
+        Log("فهرست بر اساس پینگ از کم به زیاد مرتب شد.");
     }
 
     private void ProfilesList_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -290,6 +275,8 @@ public partial class MainWindow : Window
         DetailHost.Text = p.Host;
         DetailPort.Text = p.Port.ToString();
         DetailLatency.Text = p.LatencyMs is null ? "اندازه‌گیری نشده" : $"{p.LatencyMs} ms";
+        DetailServerLocation.Text = p.Host + "  •  در حال شناسایی IP و کشور";
+        _ = UpdateServerLocationAsync(p);
         ProfilesList.Items.Refresh();
     }
 
@@ -333,6 +320,7 @@ public partial class MainWindow : Window
             }
             DetailSendTotal.Text = FormatBytes(sent);
             DetailReceiveTotal.Text = FormatBytes(received);
+            DetailTotalTraffic.Text = "مجموع مصرف: " + FormatBytes(sent + received);
             _lastSent = sent; _lastReceived = received; _lastTrafficSample = now;
         }
         catch (Exception ex) { Debug.WriteLine("Traffic stats read failed: " + ex); }
@@ -346,10 +334,63 @@ public partial class MainWindow : Window
         return unit == 0 ? $"{bytes:0} {units[unit]}" : $"{bytes:0.##} {units[unit]}";
     }
 
+    private void RefreshEngineLogs()
+    {
+        try
+        {
+            var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TakVPN", "xray-startup.log");
+            if (!File.Exists(path)) return;
+            foreach (var line in File.ReadLines(path).TakeLast(120))
+                if (_shownLogLines.Add(line)) LogsBox.AppendText(line + Environment.NewLine);
+            LogsBox.ScrollToEnd();
+        }
+        catch (Exception ex) { Debug.WriteLine(ex); }
+    }
+
+    private void Log(string message)
+    {
+        var line = "[" + DateTime.Now.ToString("HH:mm:ss") + "] " + message;
+        if (!Dispatcher.CheckAccess()) { Dispatcher.Invoke(() => Log(message)); return; }
+        LogsBox.AppendText(line + Environment.NewLine);
+        LogsBox.ScrollToEnd();
+        try
+        {
+            var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TakVPN", "app.log");
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.AppendAllText(path, line + Environment.NewLine);
+        }
+        catch (Exception ex) { Debug.WriteLine(ex); }
+    }
+
+    private async Task UpdateServerLocationAsync(VpnProfile profile)
+    {
+        try
+        {
+            var addresses = await System.Net.Dns.GetHostAddressesAsync(profile.Host);
+            var ip = addresses.FirstOrDefault(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)?.ToString()
+                ?? addresses.FirstOrDefault()?.ToString() ?? profile.Host;
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(4) };
+            var json = await client.GetStringAsync("https://ipwho.is/" + Uri.EscapeDataString(ip));
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            var country = root.TryGetProperty("country", out var c) ? c.GetString() : null;
+            var code = root.TryGetProperty("country_code", out var cc) ? cc.GetString() : null;
+            var flag = string.IsNullOrWhiteSpace(code) ? "" : string.Concat(code.ToUpperInvariant().Select(ch => char.ConvertFromUtf32(ch + 127397)));
+            if (ProfilesList.SelectedItem == profile) DetailServerLocation.Text = flag + "  " + ip + "  •  " + (country ?? "کشور نامشخص");
+        }
+        catch (Exception ex)
+        {
+            if (ProfilesList.SelectedItem == profile) DetailServerLocation.Text = profile.Host + "  •  شناسایی کشور ناموفق";
+            Log("شناسایی IP/کشور: " + ex.Message);
+        }
+    }
+
     private void ClearDetails()
     {
         DetailName.Text = DetailProtocol.Text = DetailHost.Text = DetailPort.Text = "—";
         DetailLatency.Text = "اندازه‌گیری نشده";
+        DetailServerLocation.Text = "—";
+        DetailTotalTraffic.Text = "مجموع مصرف: 0 B";
     }
 
     private void LoadProfiles()
