@@ -444,7 +444,7 @@ public sealed class VpnProfile
         try
         {
             var protocol = link[..Math.Max(0, link.IndexOf("://", StringComparison.Ordinal))].ToLowerInvariant();
-            if (protocol is not ("vless" or "vmess" or "trojan")) return false;
+            if (protocol is not ("vless" or "vmess" or "trojan" or "hysteria2" or "hy2")) return false;
             string host;
             int port = 443;
             string name = "";
