@@ -96,7 +96,7 @@ public partial class MainWindow : Window
         ClearDetails();
     }
 
-    private async void TestLatency_Click(object sender, RoutedEventArgs e)
+    private async void TestProfile_Click(object sender, RoutedEventArgs e)\n    {\n        if (_isClosing || _busy || _engine.IsRunning || sender is not Button { Tag: VpnProfile profile }) return;\n        SetBusy(true, $"در حال پینگ {profile.Name}…");\n        try\n        {\n            profile.LatencyMs = await _engine.MeasureProxyLatencyAsync(profile);\n            StatusText.Text = $"پینگ {profile.Name}: {profile.LatencyMs} ms";\n            StatusHint.Text = "تأخیر از طریق درخواست HTTPS در مسیر Xray اندازه‌گیری شد.";\n        }\n        catch (Exception ex)\n        {\n            profile.LatencyMs = null;\n            StatusText.Text = "پینگ ناموفق";\n            StatusHint.Text = ex.Message;\n            Debug.WriteLine(ex);\n        }\n        finally\n        {\n            if (!_isClosing) { ProfilesList.Items.Refresh(); if (ProfilesList.SelectedItem == profile) RefreshSelected(); SaveProfiles(); SetBusy(false); }\n        }\n    }\n\n    private async void TestLatency_Click(object sender, RoutedEventArgs e)
     {
         if (_isClosing || ProfilesList.SelectedItem is not VpnProfile profile || _busy) return;
         SetBusy(true, "در حال راه‌اندازی هسته و سنجش تأخیر واقعی…");
