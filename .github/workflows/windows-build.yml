@@ -64,6 +64,7 @@ jobs:
           if (-not $iscc) { throw "Inno Setup compiler not found" }
           & $iscc "installer/TakVPN.iss"
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed" }
+          Copy-Item "installer/TakVPN-Setup-x64.exe" "TakVPN-Setup-x64.exe" -Force
       - name: Create portable ZIP
         shell: pwsh
         run: |
