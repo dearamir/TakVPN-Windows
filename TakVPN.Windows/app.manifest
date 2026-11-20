@@ -4,9 +4,8 @@
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
     <security>
       <requestedPrivileges>
-        <!-- Run the desktop UI as a standard user. Privileged VPN operations
-             must request elevation only when they are actually needed. -->
-        <requestedExecutionLevel level="asInvoker" uiAccess="false"/>
+        <!-- Xray TUN requires elevated privileges on Windows. Request UAC elevation at app startup. -->
+        <requestedExecutionLevel level="requireAdministrator" uiAccess="false"/>
       </requestedPrivileges>
     </security>
   </trustInfo>
