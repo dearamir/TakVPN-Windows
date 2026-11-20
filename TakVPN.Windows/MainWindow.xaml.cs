@@ -14,6 +14,7 @@ namespace TakVPN.Windows;
 public partial class MainWindow : Window
 {
     private readonly ObservableCollection<VpnProfile> _profiles = new();
+    private readonly LayoutCustomization _layoutCustomization;
     private readonly string _storePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TakVPN", "profiles.json");
     private readonly XrayEngine _engine = new();
     private bool _busy;
@@ -27,6 +28,9 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        _layoutCustomization = new LayoutCustomization(this,
+            new FrameworkElement[] { HeaderPanel, ConnectionPanel, ConfigPanel, DetailsPanel, FooterPanel },
+            ConfigToolbar, EditLayoutButton, ResetLayoutButton);
         FitWindowToWorkArea();
         LoadWindowIcon();
         AppVersionText.Text = "نسخه " + (Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3) ?? "0.1.35");
