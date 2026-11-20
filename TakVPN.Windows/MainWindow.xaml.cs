@@ -4,6 +4,7 @@ using System.IO;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media.Imaging;
 
 namespace TakVPN.Windows;
 
@@ -18,9 +19,33 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        LoadWindowIcon();
         ProfilesList.ItemsSource = _profiles;
         LoadProfiles();
         UpdateButtons();
+    }
+
+    private void LoadWindowIcon()
+    {
+        // The ICO is deployed as a content file, not a WPF Resource. Resolve it
+        // from the executable directory after XAML has loaded so a missing icon
+        // can never prevent the main window from starting.
+        try
+        {
+            var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "TakVPN.ico");
+            if (!File.Exists(iconPath)) return;
+
+            var bitmap = new BitmapImage();
+            bitmap.BeginInit();
+            bitmap.UriSource = new Uri(iconPath, UriKind.Absolute);
+            bitmap.CacheOption = BitmapCacheOption.OnLoad;
+            bitmap.EndInit();
+            Icon = bitmap;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Window icon could not be loaded: {ex}");
+        }
     }
 
     private void AddConfig_Click(object sender, RoutedEventArgs e)
