@@ -17,6 +17,11 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
+      - name: Restore TakVPN application icon
+        shell: pwsh
+        run: |
+          $iconBase64 = Get-Content TakVPN.Windows/Assets/TakVPN.ico.b64 -Raw
+          [System.IO.File]::WriteAllBytes('TakVPN.Windows/Assets/TakVPN.ico', [Convert]::FromBase64String($iconBase64))
       - name: Build and publish Windows x64
         run: dotnet publish TakVPN.Windows/TakVPN.Windows.csproj -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true
       - name: Upload build artifact
