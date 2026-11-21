@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media.Imaging;
+using System.Windows.Media;
 using System.Reflection;
 
 namespace TakVPN.Windows;
@@ -18,6 +19,7 @@ public partial class MainWindow : Window
     private readonly string _storePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TakVPN", "profiles.json");
     private readonly XrayEngine _engine = new();
     private bool _busy;
+    private bool _oceanTheme;
     private bool _isClosing;
     private readonly System.Windows.Threading.DispatcherTimer _trafficTimer = new() { Interval = TimeSpan.FromSeconds(1) };
     private long _lastSent, _lastReceived, _baseSent, _baseReceived;
@@ -28,6 +30,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        ApplySavedTheme();
         _layoutCustomization = new LayoutCustomization(this,
             new FrameworkElement[] { HeaderPanel, ConnectionPanel, ConfigPanel, DetailsPanel, FooterPanel },
             ConfigToolbar, EditLayoutButton, ResetLayoutButton);
@@ -40,6 +43,43 @@ public partial class MainWindow : Window
         UpdateButtons();
         _trafficTimer.Tick += (_, _) => { UpdateTrafficStats(); RefreshEngineLogs(); };
         _trafficTimer.Start();
+    }
+
+
+
+    private void ThemeToggle_Click(object sender, RoutedEventArgs e)
+    {
+        _oceanTheme = !_oceanTheme;
+        ApplyThemeColors();
+        try
+        {
+            var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TakVPN", "ui-theme.txt");
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, _oceanTheme ? "ocean" : "gold");
+        }
+        catch { }
+    }
+
+    private void ApplySavedTheme()
+    {
+        try
+        {
+            var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TakVPN", "ui-theme.txt");
+            _oceanTheme = File.Exists(path) && File.ReadAllText(path).Trim().Equals("ocean", StringComparison.OrdinalIgnoreCase);
+        }
+        catch { _oceanTheme = false; }
+        ApplyThemeColors();
+    }
+
+    private void ApplyThemeColors()
+    {
+        var accent = (SolidColorBrush)Application.Current.Resources["AccentBrush"];
+        var panel = (SolidColorBrush)Application.Current.Resources["PanelBrush"];
+        var window = (SolidColorBrush)Application.Current.Resources["WindowBrush"];
+        accent.Color = _oceanTheme ? Color.FromRgb(0, 205, 235) : Color.FromRgb(212, 175, 55);
+        panel.Color = _oceanTheme ? Color.FromRgb(23, 39, 61) : Color.FromRgb(35, 35, 40);
+        window.Color = _oceanTheme ? Color.FromRgb(12, 22, 38) : Color.FromRgb(16, 16, 18);
+        ThemeToggleButton.Content = _oceanTheme ? "پوسته مشکی‌طلایی" : "پوسته آبی اقیانوسی";
     }
 
 
