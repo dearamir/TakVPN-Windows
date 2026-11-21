@@ -17,11 +17,11 @@
 4. Keep desktop adaptations (keyboard/mouse, window sizing, multi-column layout) subtle; the UI should feel like the Android app expanded to desktop rather than a separate design.
 5. Build and test the Windows app after each coherent change. Do not publish a release until build and smoke tests pass.
 
-## Status
+## Verified feature inventory and mapping (initial pass)\n\nAndroid source exposes theme palette and text-color preview dialogs, language translations, profile import/add/edit/delete, QR scanning and QR display/share, subscription management and refresh, DNS configuration, smart-connect/fastest-profile selection, ping-one/ping-all and sorting, connection testing, traffic tracking/reset, event logs with copy/clear, app/core update checks and install, appearance toggles, and connection status/animation.\n\nWindows XAML currently has profile add/edit/remove, per-profile and all-profile ping, ping sorting, Xray/Wintun validation, profile details, traffic counters, live logs, layout customization, and app updater. Initial gaps to investigate/port: Android palette and text-color customization, language, subscription management, QR scan/display/share, DNS settings, smart-connect/fastest selection, usage reset, Android-style action sheets and preview dialogs. This list is a source-based inventory; implementation and parity validation are still pending.\n\n## Status
 - [x] Confirmed access to both repositories.
 - [x] Created isolated branch `android-ui-parity` in Windows repository.
-- [ ] Complete screen/feature inventory from Android source.
-- [ ] Map Android screens and components to Windows XAML.
+- [x] Complete initial feature inventory from Android source (verified `MainActivity.kt` functions).
+- [x] Map current Windows panels and controls against Android feature inventory (initial mapping recorded below).
 - [ ] Implement UI parity in small commits.
 - [ ] Build, launch, and smoke-test.
 - [ ] Review and release only after verification.
