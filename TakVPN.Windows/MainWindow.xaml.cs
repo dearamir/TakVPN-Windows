@@ -39,13 +39,21 @@ public partial class MainWindow : Window
         AppVersionText.Text = "نسخه " + (Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3) ?? "0.1.35");
         UpdateVpnStatusIcon(false);
         ProfilesList.ItemsSource = _profiles;
+        _profiles.CollectionChanged += (_, _) => UpdateProfilesCount();
         LoadProfiles();
+        UpdateProfilesCount();
         UpdateButtons();
         _trafficTimer.Tick += (_, _) => { UpdateTrafficStats(); RefreshEngineLogs(); };
         _trafficTimer.Start();
     }
 
 
+
+    private void UpdateProfilesCount()
+    {
+        if (ProfilesCountText is null) return;
+        ProfilesCountText.Text = $"{_profiles.Count} کانفیگ";
+    }
 
     private void ThemeToggle_Click(object sender, RoutedEventArgs e)
     {
